@@ -21,7 +21,7 @@ To modify: `token-saver config set min_lines 10`
 Set `TOKEN_SAVER_DEBUG=true` environment variable to enable debug logging to `~/.token-saver/hook.log`.
 
 ## Supported Processors
-Token-saver includes processors for: git, gh (GitHub CLI), docker, kubectl, terraform, npm/pip/cargo, test runners (pytest, jest, go test), linters (eslint, ruff, pylint), build tools, cloud CLIs (aws, gcloud, az), database queries, file listings, file content, environment/system info, network tools (curl, wget), and search (grep, find, ripgrep).
+Token-saver includes processors for: git, gh (GitHub CLI), docker, kubectl, terraform, npm/pip/cargo, C/C++ compilers and build tools (GCC, Clang, Ninja, Meson, CMake), Qt/QML tools (qmake, moc/uic/rcc, qmllint, Qt Test), test runners, linters and static analysis, cloud CLIs, database queries, file listings, file content, environment/system info, network tools, and search.
 
 ## Graphify
 The Kilo installation also includes the `token-saver-graphify` skill. It uses an

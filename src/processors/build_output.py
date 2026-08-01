@@ -9,7 +9,7 @@ class BuildOutputProcessor(Processor):
     priority = 25
     hook_patterns = [
         r"^(npm\s+(run|install|build|ci|audit)|yarn\s+(run|install|build|add|audit)|pnpm\s+(run|install|build|add|audit))\b",
-        r"^(make|cmake|ant)\b",
+        r"^(make|cmake(?!\s+--build)|ant)\b",
         r"^(tsc|webpack|vite(\s+build)?|esbuild|rollup|next\s+build|nuxt\s+build)\b",
         r"^(turbo\s+run|turbo\s+build|nx\s+(run|build)|bazel\s+build|sbt\b|mix\s+compile)\b",
         r"^docker\s+(build|compose\s+build)\b",
@@ -37,7 +37,7 @@ class BuildOutputProcessor(Processor):
         return bool(
             re.search(
                 r"\b(npm\s+(run|install|ci|build|audit)|yarn\s+(run|install|build|add|audit)|pnpm\s+(run|install|build|add|audit)|"
-                r"make\b|cmake\b|ant\b|"
+                r"make\b|cmake(?!\s+--build)\b|ant\b|"
                 r"tsc\b|webpack\b|vite(\s+build)?|esbuild\b|rollup\b|next\s+build|nuxt\s+build|"
                 r"docker\s+(build|compose\s+build)|"
                 r"turbo\s+(run|build)|nx\s+(run|build)|bazel\s+build|sbt\b|mix\s+compile|"

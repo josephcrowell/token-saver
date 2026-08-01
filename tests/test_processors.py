@@ -14,6 +14,9 @@ from src.processors.cargo import CargoProcessor
 from src.processors.cargo_clippy import CargoClippyProcessor
 from src.processors.cdktf import CdktfProcessor
 from src.processors.cloud_cli import CloudCliProcessor
+from src.processors.cpp_analysis import CppAnalysisProcessor
+from src.processors.cpp_build import CppBuildProcessor
+from src.processors.cpp_test import CppTestProcessor
 from src.processors.db_query import DbQueryProcessor
 from src.processors.docker import DockerProcessor
 from src.processors.env import EnvProcessor
@@ -42,6 +45,152 @@ from src.processors.syslog import SyslogProcessor
 from src.processors.system_info import SystemInfoProcessor
 from src.processors.terraform import TerraformProcessor
 from src.processors.test_output import TestOutputProcessor
+
+
+class TestCppBuildProcessor:
+    def setup_method(self):
+        self.p = CppBuildProcessor()
+
+    def test_can_handle_cpp_build_commands(self):
+        for command in (
+            "gcc main.c -o app",
+            "g++ main.cpp -o app",
+            "clang++ -c widget.cpp",
+            "ninja -C build",
+            "meson compile -C build",
+            "cmake --build build",
+            "qmake6 project.pro",
+            "moc widget.h -o moc_widget.cpp",
+        ):
+            assert self.p.can_handle(command), command
+        assert not self.p.can_handle("cmake -S . -B build")
+
+    def test_success_removes_ninja_progress(self):
+        output = "\n".join(
+            [f"[{i}/100] Building CXX object src/file{i}.cpp.o" for i in range(1, 100)]
+            + ["[100/100] Linking CXX executable app"]
+        )
+        result = self.p.process("ninja -C build", output)
+        assert "C/C++ build succeeded" in result
+        assert "file1.cpp" not in result
+        assert "Linking CXX executable app" in result
+
+    def test_preserves_compiler_and_linker_diagnostics(self):
+        output = "\n".join(
+            ["[1/80] Building CXX object src/noise.cpp.o"] * 40
+            + [
+                "FAILED: src/widget.cpp.o",
+                "clang++ -c src/widget.cpp",
+                "src/widget.cpp:42:9: error: use of undeclared identifier 'value'",
+                "   42 | return value;",
+                "      |        ^~~~~",
+                "src/widget.cpp:39:5: note: declared here",
+                "ld: error: undefined reference to `Widget::render()`",
+                "ninja: build stopped: subcommand failed.",
+            ]
+        )
+        result = self.p.process("ninja -C build", output)
+        assert "src/widget.cpp:42:9" in result
+        assert "undeclared identifier 'value'" in result
+        assert "declared here" in result
+        assert "undefined reference" in result
+        assert "ninja: build stopped" in result
+        assert result.count("noise.cpp") < 3
+
+    def test_preserves_qt_autogen_error(self):
+        output = "\n".join(
+            [f"[{i}/70] Automatic MOC for target App" for i in range(1, 65)]
+            + [
+                "AutoMoc error",
+                '-------------',
+                'The moc process failed to compile "src/widget.h"',
+                'Output',
+                '------',
+                'src/widget.h:18:1: error: Missing access specifier for slots',
+            ]
+        )
+        result = self.p.process("cmake --build build", output)
+        assert "AutoMoc error" in result
+        assert "src/widget.h" in result
+        assert "Missing access specifier" in result
+
+
+class TestCppAnalysisProcessor:
+    def setup_method(self):
+        self.p = CppAnalysisProcessor()
+
+    def test_can_handle_analysis_tools(self):
+        for command in (
+            "clang-tidy src/widget.cpp -- -Iinclude",
+            "cppcheck --enable=all src",
+            "include-what-you-use src/widget.cpp",
+            "qmllint Main.qml",
+            "qmlformat -i Main.qml",
+        ):
+            assert self.p.can_handle(command), command
+
+    def test_groups_diagnostics_by_rule(self):
+        output = "\n".join(
+            [
+                f"src/file{i}.cpp:10:5: warning: use nullptr [modernize-use-nullptr]"
+                for i in range(20)
+            ]
+            + ["Main.qml:12:3: warning: Unqualified access [unqualified]"]
+        )
+        result = self.p.process("clang-tidy src/*.cpp", output)
+        assert "modernize-use-nullptr: 20" in result
+        assert "unqualified: 1" in result
+        assert "src/file0.cpp:10:5" in result
+        assert "Main.qml:12:3" in result
+
+
+class TestCppTestProcessor:
+    def setup_method(self):
+        self.p = CppTestProcessor()
+
+    def test_can_handle_cpp_and_qt_tests(self):
+        assert self.p.can_handle("ctest --test-dir build --output-on-failure")
+        assert self.p.can_handle("./tst_widget -o -,txt")
+        assert self.p.can_handle("./tests --gtest_filter=WidgetTest.*")
+        assert self.p.can_handle("qmltestrunner -input tests")
+
+    def test_ctest_collapses_passes_and_keeps_failure(self):
+        output = "\n".join(
+            [f"{i}/100 Test #{i}: pass_{i} ........ Passed 0.01 sec" for i in range(1, 100)]
+            + [
+                "100/100 Test #100: widget_test ........***Failed 0.03 sec",
+                "Expected: 42",
+                "Actual: 41",
+                "The following tests FAILED:",
+                "100 - widget_test (Failed)",
+                "99% tests passed, 1 tests failed out of 100",
+                "Total Test time (real) = 1.25 sec",
+            ]
+        )
+        result = self.p.process("ctest --output-on-failure", output)
+        assert "widget_test" in result
+        assert "Expected: 42" in result
+        assert "Actual: 41" in result
+        assert "99% tests passed" in result
+        assert "pass_1" not in result
+
+    def test_qttest_preserves_data_failure(self):
+        output = "\n".join(
+            [f"PASS   : WidgetTest::testRender(row{i})" for i in range(100)]
+            + [
+                "FAIL!  : WidgetTest::testRender(invalid-size) Compared values are not the same",
+                "   Actual   (size.width()): 9",
+                "   Expected (10)          : 10",
+                "   Loc: [tests/tst_widget.cpp(88)]",
+                "Totals: 100 passed, 1 failed, 0 skipped, 0 blacklisted, 15ms",
+            ]
+        )
+        result = self.p.process("./tst_widget -o -,txt", output)
+        assert "invalid-size" in result
+        assert "size.width()" in result
+        assert "tst_widget.cpp(88)" in result
+        assert "100 passed, 1 failed" in result
+        assert "row0" not in result
 
 
 class TestGitProcessor:

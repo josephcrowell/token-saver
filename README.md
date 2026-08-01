@@ -10,7 +10,7 @@
 
 Token-Saver is a drop-in **context-window optimizer for AI coding assistants**. It compresses the verbose terminal output your agent reads — `git diff`, `pytest`, `npm install`, `terraform plan`, `kubectl`, `docker` — so you spend fewer tokens, stay under your LLM context limit, and get faster, cheaper, more focused responses.
 
-**36 specialized processors** understand the tools you already use — git, pytest, jest, cargo, go, docker, kubernetes, terraform, pulumi, helm, ansible, aws, gcloud, and more. Each one knows exactly what to keep and what to discard: errors, diffs, stack traces, and actionable data stay; progress bars, passing tests, download spinners, and boilerplate go.
+**39 specialized processors** understand the tools you already use — git, pytest, C/C++ compilers, CMake/Ninja, Qt/QML tooling, cargo, go, docker, kubernetes, terraform, pulumi, helm, ansible, aws, gcloud, and more. Each one knows exactly what to keep and what to discard: errors, diffs, stack traces, and actionable data stay; progress bars, passing tests, download spinners, and boilerplate go.
 
 Compatible with **Kilo Code**, **Claude Code**, and **Antigravity CLI**. No extra LLM calls. Fully deterministic. One install, instant savings.
 
@@ -54,7 +54,7 @@ Token-Saver takes a different approach from LLM-based or caching solutions — s
 ```
 CLI command  -->  Specialized processor  -->  Compressed output
                         |
-                  36 processors
+                  39 processors
                   (git, test, cargo, go, build,
                    lint, package_list, python_install,
                    maven_gradle, bun, network, docker,
@@ -63,7 +63,8 @@ CLI command  -->  Specialized processor  -->  Compressed output
                    gh, db_query, cloud_cli, ansible,
                    helm, syslog, ssh, jq_yq, just, act,
                    structured_log, file_listing,
-                   file_content, generic)
+                    file_content, C/C++ build/analysis/tests,
+                    Qt/QML tooling, generic)
 ```
 
 The engine (`CompressionEngine`) maintains a priority-ordered chain of processors.
@@ -323,6 +324,9 @@ processor is in [`docs/processors/`](docs/processors/).
 | 6 | **Cargo** | 22 | cargo build, check, doc, update, bench | [cargo.md](docs/processors/cargo.md) |
 | 7 | **Go** | 23 | go build, vet, mod, generate, install | [go.md](docs/processors/go.md) |
 | 8 | **Python Install** | 24 | pip install, poetry install/update/add, uv pip install, uv sync | [python_install.md](docs/processors/python_install.md) |
+| — | **C/C++ Build** | 14 | gcc/g++, clang/clang++, Ninja, Meson, CMake build, qmake, moc/uic/rcc | [cpp_qt.md](docs/processors/cpp_qt.md) |
+| — | **C++/Qt Analysis** | 17 | clang-tidy, clang-format, cppcheck, IWYU, qmllint, qmlformat | [cpp_qt.md](docs/processors/cpp_qt.md) |
+| — | **C++/Qt Tests** | 13 | CTest, GoogleTest, Catch2, Qt Test, qmltestrunner | [cpp_qt.md](docs/processors/cpp_qt.md) |
 | 9 | **Build** | 25 | npm/yarn/pnpm build/install, cargo build, make, cmake, tsc, webpack, vite, next build, turbo, nx, bazel, sbt, mix compile, docker build | [build_output.md](docs/processors/build_output.md) |
 | 10 | **Cargo Clippy** | 26 | cargo clippy (multi-line block grouping with span/help preservation) | [cargo_clippy.md](docs/processors/cargo_clippy.md) |
 | 11 | **Lint** | 27 | eslint, ruff, flake8, pylint, clippy, mypy, prettier, biome, shellcheck, hadolint, rubocop, golangci-lint | [lint_output.md](docs/processors/lint_output.md) |
@@ -350,7 +354,7 @@ processor is in [`docs/processors/`](docs/processors/).
 | 33 | **mise** | 49 | mise install, use, upgrade (runtime version manager) | — |
 | 34 | **File Listing** | 50 | ls, find, tree, exa, eza, rsync | [file_listing.md](docs/processors/file_listing.md) |
 | 35 | **File Content** | 51 | cat, head, tail, bat, less, more (content-aware: code, config, log, CSV) | [file_content.md](docs/processors/file_content.md) |
-| 36 | **Generic** | 999 | Any command (fallback: ANSI strip, dedup, truncation) | [generic.md](docs/processors/generic.md) |
+| 39 | **Generic** | 999 | Any command (fallback: ANSI strip, dedup, truncation) | [generic.md](docs/processors/generic.md) |
 
 ## Configuration
 

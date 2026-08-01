@@ -210,9 +210,9 @@ class TestProcessorRegistry:
     """Tests for auto-discovery and the processor registry."""
 
     def test_discover_processors_finds_all(self):
-        """Auto-discovery should find all 36 processors."""
+        """Auto-discovery should find all built-in processors."""
         processors = discover_processors()
-        assert len(processors) == 36
+        assert len(processors) == 39
 
     def test_discover_processors_sorted_by_priority(self):
         """Processors must be returned in ascending priority order."""
@@ -242,7 +242,10 @@ class TestProcessorRegistry:
         """Verify the expected processor priority assignments."""
         processors = discover_processors()
         name_to_priority = {p.name: p.priority for p in processors}
+        assert name_to_priority["cpp_test"] == 13
+        assert name_to_priority["cpp_build"] == 14
         assert name_to_priority["package_list"] == 15
+        assert name_to_priority["cpp_analysis"] == 17
         assert name_to_priority["just"] == 18
         assert name_to_priority["act"] == 19
         assert name_to_priority["git"] == 20

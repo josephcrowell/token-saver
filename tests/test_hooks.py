@@ -320,6 +320,24 @@ class TestHookPretool:
         assert is_compressible("nx build")
         assert is_compressible("docker compose build")
 
+    def test_cpp_and_qt_commands_compressible(self):
+        for command in (
+            "gcc main.c -o app",
+            "g++ main.cpp -o app",
+            "clang++ -c widget.cpp",
+            "ninja -C build",
+            "meson compile -C build",
+            "cmake --build build",
+            "qmake6 project.pro",
+            "clang-tidy src/widget.cpp -- -Iinclude",
+            "cppcheck --enable=all src",
+            "qmllint Main.qml",
+            "ctest --test-dir build --output-on-failure",
+            "qmltestrunner -input tests",
+            "./tst_widget -o -,txt",
+        ):
+            assert is_compressible(command), command
+
     def test_new_search_commands_compressible(self):
         assert is_compressible("fd -e py")
         assert is_compressible("fdfind pattern")
