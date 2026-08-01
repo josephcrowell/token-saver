@@ -1,5 +1,4 @@
 ---
-name: stats
 description: "Show token-saver compression statistics and savings"
 ---
 

@@ -12,7 +12,7 @@ Token-Saver is a drop-in **context-window optimizer for AI coding assistants**. 
 
 **36 specialized processors** understand the tools you already use — git, pytest, jest, cargo, go, docker, kubernetes, terraform, pulumi, helm, ansible, aws, gcloud, and more. Each one knows exactly what to keep and what to discard: errors, diffs, stack traces, and actionable data stay; progress bars, passing tests, download spinners, and boilerplate go.
 
-Compatible with **Claude Code** and **Antigravity CLI**. Zero added latency. No extra LLM calls. Fully deterministic. One install, instant savings.
+Compatible with **Kilo Code**, **Claude Code**, and **Antigravity CLI**. No extra LLM calls. Fully deterministic. One install, instant savings.
 
 **Why developers use Token-Saver:**
 
@@ -78,7 +78,21 @@ strips residual ANSI codes and collapses consecutive blank lines.
 
 ### Platform Integration
 
-The two platforms use different mechanisms:
+The platforms use the safest mechanism each plugin API provides:
+
+**Kilo Code** (`tool.execute.after` plugin hook):
+
+```
+1. Kilo executes a Bash command normally
+2. The Token-Saver plugin receives the completed command and output
+3. A local Python bridge applies the matching processor
+4. The hook replaces output.output with the compressed result
+5. Kilo sends the compressed output to the model
+```
+
+Kilo's post-tool hook can modify output directly, so commands are never
+re-executed. The plugin fails open: if Python or compression fails, the original
+tool output remains untouched.
 
 **Claude Code** (PreToolUse hook):
 
@@ -123,9 +137,61 @@ Compression is aggressive on noise, conservative on signal:
 ### Prerequisites
 
 - Python 3.10+
-- Claude Code and/or Antigravity CLI
+- Kilo Code, Claude Code, and/or Antigravity CLI
 
-### Method 1: Claude Code Plugin (recommended)
+### Method 1: Kilo Code (recommended for Kilo users)
+
+```bash
+git clone https://github.com/ppgranger/token-saver.git
+cd token-saver
+python3 install.py --target kilo
+```
+
+Restart Kilo Code after installation. The installer adds:
+
+- `~/.config/kilo/plugins/token-saver.js` — native post-tool compression plugin
+- `~/.config/kilo/skills/token-saver-config/SKILL.md` — configuration skill
+- `~/.config/kilo/skills/token-saver-graphify/SKILL.md` — Graphify context skill
+- `~/.config/kilo/commands/token-saver-stats.md` — `/token-saver-stats` command
+- `~/.token-saver/` — shared Python compression engine and local statistics
+
+If `KILO_CONFIG_DIR` is set, that directory is used instead of
+`~/.config/kilo`. Install all supported integrations with
+`python3 install.py --target all`.
+
+This is a permanent copy installation: the generated Kilo plugin points to
+`~/.token-saver/kilo/compress.py`, not to the cloned repository. After the
+installer finishes, you can delete the clone and continue using Token-Saver.
+Do not pass `--link` if you intend to delete the source checkout.
+
+### Graphify integration
+
+The Kilo install includes a `token-saver-graphify` skill. For codebase questions,
+it instructs Kilo to query an existing `graphify-out/graph.json` before broadly
+searching or reading the repository, then to update the graph after completed code
+changes. This complements terminal-output compression by reducing repository
+context sent to the model.
+
+Graphify itself must be installed separately:
+
+```bash
+pipx install graphifyy
+# or
+pip install graphifyy
+```
+
+Create the initial graph from a project's root:
+
+```bash
+graphify .
+```
+
+After that, Kilo can use `graphify query` and `graphify update .` through the
+installed skill. Structural code extraction is local and makes no Kilo Gateway
+or free-router model calls. Document/image semantic extraction may use Gemini
+only if you separately configure a Gemini API key.
+
+### Method 2: Claude Code Plugin
 
 From the self-hosted marketplace:
 ```
@@ -139,14 +205,15 @@ git clone https://github.com/ppgranger/token-saver.git
 claude --plugin-dir ./token-saver
 ```
 
-### Method 2: Manual installation
+### Method 3: Manual installation
 
 ```bash
 git clone https://github.com/ppgranger/token-saver.git
 cd token-saver
 python3 install.py --target claude    # Claude Code only
 python3 install.py --target antigravity    # Antigravity CLI only
-python3 install.py --target both      # Both platforms
+python3 install.py --target kilo      # Kilo Code only
+python3 install.py --target all       # All platforms
 ```
 
 The manual installer registers token-saver as a native Claude Code plugin
@@ -169,6 +236,7 @@ Do **not** delete the repo in this mode.
 
 ```bash
 python3 install.py --uninstall              # Remove from all platforms
+python3 install.py --uninstall --target kilo # Remove Kilo integration only
 python3 install.py --uninstall --keep-data  # Keep stats DB
 ```
 
@@ -217,6 +285,7 @@ python3 install.py --uninstall --target claude
    - Core: `~/.token-saver/` (CLI, updater, shared source)
    - Claude Code: `~/.claude/plugins/cache/token-saver-marketplace/token-saver/`
    - Antigravity CLI: `~/.gemini/antigravity-cli/plugins/token-saver/`
+   - Kilo Code: `~/.config/kilo/plugins/token-saver.js` plus skill and command
 2. Registers as a native Claude Code plugin in `installed_plugins.json` and `enabledPlugins`
 3. Installs `token-saver` CLI to `~/.local/bin/`
 4. Stamps the current version into plugin manifests

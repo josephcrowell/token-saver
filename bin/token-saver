@@ -63,7 +63,7 @@ def _find_src_dir():
             return candidate
 
     print("Error: could not find token-saver installation.", file=sys.stderr)
-    print("Re-run: python3 install.py --target claude", file=sys.stderr)
+    print("Re-run: python3 install.py --target kilo", file=sys.stderr)
     sys.exit(1)
 
 

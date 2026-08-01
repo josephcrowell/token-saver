@@ -88,7 +88,7 @@ def cmd_update(_args):
     """Check for updates, then always refresh the local install.
 
     Remote fetch is best-effort: if it fails or matches the local version,
-    we still re-run the installer so the Claude/Antigravity plugin caches stay
+    we still re-run the installer so the platform integrations stay
     in sync with the source files on disk.
     """
     repo_dir = _repo_dir()
@@ -160,9 +160,23 @@ def _detect_installed_targets():
 
     claude_installed = os.path.isdir(claude_old) or os.path.isdir(claude_cache)
     antigravity_installed = os.path.isdir(antigravity_dir)
+    kilo_config = os.environ.get("KILO_CONFIG_DIR")
+    if kilo_config:
+        kilo_dir = os.path.abspath(os.path.expanduser(kilo_config))
+    elif os.name == "nt":
+        appdata = os.environ.get("APPDATA", os.path.join(h, "AppData", "Roaming"))
+        kilo_dir = os.path.join(appdata, "kilo")
+    else:
+        kilo_dir = os.path.join(h, ".config", "kilo")
+    kilo_installed = os.path.isfile(os.path.join(kilo_dir, "plugins", "token-saver.js"))
 
-    if claude_installed and antigravity_installed:
+    if claude_installed and antigravity_installed and not kilo_installed:
         return "both"
+    installed_count = sum((claude_installed, antigravity_installed, kilo_installed))
+    if installed_count > 1:
+        return "all"
+    if kilo_installed:
+        return "kilo"
     if antigravity_installed:
         return "antigravity"
     # Default to claude (most common, and safe even if dir was just cleaned)
@@ -250,6 +264,7 @@ def _update_via_tarball(repo_dir, version):
             "skills",
             "commands",
             "antigravity",
+            "kilo",
             "bin",
             "install.py",
             "pyproject.toml",

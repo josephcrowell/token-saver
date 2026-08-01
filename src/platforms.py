@@ -6,6 +6,7 @@ from enum import Enum
 class Platform(Enum):
     CLAUDE_CODE = "claude_code"
     ANTIGRAVITY_CLI = "antigravity_cli"
+    KILO_CODE = "kilo_code"
     UNKNOWN = "unknown"
 
 

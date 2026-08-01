@@ -23,9 +23,16 @@ Set `TOKEN_SAVER_DEBUG=true` environment variable to enable debug logging to `~/
 ## Supported Processors
 Token-saver includes processors for: git, gh (GitHub CLI), docker, kubectl, terraform, npm/pip/cargo, test runners (pytest, jest, go test), linters (eslint, ruff, pylint), build tools, cloud CLIs (aws, gcloud, az), database queries, file listings, file content, environment/system info, network tools (curl, wget), and search (grep, find, ripgrep).
 
+## Graphify
+The Kilo installation also includes the `token-saver-graphify` skill. It uses an
+existing `graphify-out/graph.json` to narrow codebase exploration and runs
+`graphify update .` after completed code changes. Graphify is an optional external
+dependency and must be installed separately.
+
 ## Troubleshooting
 If compression isn't working:
 1. Check that `python3` is available in your PATH
 2. Run `TOKEN_SAVER_DEBUG=true` then trigger a compressible command
 3. Check `~/.token-saver/hook.log` for errors
-4. Verify with: `echo "test" | python3 "${CLAUDE_PLUGIN_ROOT}/scripts/hook_pretool.py"`
+4. On Kilo Code, verify `~/.config/kilo/plugins/token-saver.js` exists and restart Kilo
+5. On Claude Code, verify with: `echo "test" | python3 "${CLAUDE_PLUGIN_ROOT}/scripts/hook_pretool.py"`

@@ -295,6 +295,7 @@ CORE_FILES = [
     "installers/common.py",
     "installers/claude.py",
     "installers/antigravity.py",
+    "installers/kilo.py",
     "install.py",
     "bin/token-saver",
     "bin/token-saver.cmd",
@@ -307,7 +308,10 @@ CORE_FILES = [
     "scripts/wrap.py",
     "scripts/hook_session.py",
     "skills/token-saver-config/SKILL.md",
+    "skills/token-saver-graphify/SKILL.md",
     "commands/token-saver-stats.md",
+    # Kilo Code plugin bridge
+    "kilo/compress.py",
     "CLAUDE.md",
     # Antigravity CLI plugin
     "antigravity/antigravity-plugin.json",

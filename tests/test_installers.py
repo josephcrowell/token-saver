@@ -354,6 +354,10 @@ class TestInstallCore:
         assert os.path.isfile(os.path.join(self.tmp_dir, "scripts", "hook_pretool.py"))
         assert os.path.isfile(os.path.join(self.tmp_dir, "scripts", "wrap.py"))
         assert os.path.isfile(os.path.join(self.tmp_dir, "scripts", "__init__.py"))
+        assert os.path.isfile(os.path.join(self.tmp_dir, "kilo", "compress.py"))
+        assert os.path.isfile(
+            os.path.join(self.tmp_dir, "skills", "token-saver-graphify", "SKILL.md")
+        )
 
     def test_bin_is_executable(self):
         with mock.patch("installers.common.token_saver_data_dir", return_value=self.tmp_dir):

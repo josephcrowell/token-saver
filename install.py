@@ -6,16 +6,17 @@ Cross-platform: macOS, Linux, Windows.
 Usage:
     python3 install.py --target claude        # Install for Claude Code
     python3 install.py --target antigravity   # Install for Antigravity CLI
-    python3 install.py --target both          # Install for both
+    python3 install.py --target kilo          # Install for Kilo Code
+    python3 install.py --target all           # Install for all platforms
     python3 install.py --link                 # Use symlinks (development mode)
-    python3 install.py --uninstall            # Remove from both platforms
+    python3 install.py --uninstall            # Remove from all platforms
     python3 install.py --uninstall --target claude  # Remove from Claude Code only
 """
 
 import argparse
 import platform
 
-from installers import antigravity, claude
+from installers import antigravity, claude, kilo
 from installers.common import (
     install_cli,
     install_core,
@@ -34,18 +35,19 @@ def main():
 Examples:
   python3 install.py --target claude          Install for Claude Code
   python3 install.py --target antigravity     Install for Antigravity CLI
-  python3 install.py --target both            Install for both
+  python3 install.py --target kilo            Install for Kilo Code
+  python3 install.py --target all             Install for all platforms
   python3 install.py --link --target claude   Dev mode (symlinks)
-  python3 install.py --uninstall              Uninstall from both (default)
+  python3 install.py --uninstall              Uninstall from all (default)
   python3 install.py --uninstall --target claude  Uninstall from Claude only
   python3 install.py --uninstall --keep-data  Uninstall but keep stats DB
 """,
     )
     parser.add_argument(
         "--target",
-        choices=["claude", "antigravity", "both"],
+        choices=["claude", "antigravity", "kilo", "both", "all"],
         default=None,
-        help="Target platform (default: claude for install, both for uninstall)",
+        help="Target platform (default: claude for install, all for uninstall)",
     )
     parser.add_argument(
         "--link",
@@ -65,8 +67,8 @@ Examples:
     args = parser.parse_args()
 
     if args.uninstall:
-        # Default to 'both' for uninstall so nothing is left behind
-        target = args.target or "both"
+        # Default to 'all' for uninstall so nothing is left behind
+        target = args.target or "all"
         print(f"Uninstalling token-saver from: {target}")
 
         print("\n--- Legacy cleanup ---")
@@ -75,10 +77,12 @@ Examples:
         print("\n--- CLI ---")
         uninstall_cli()
 
-        if target in ("claude", "both"):
+        if target in ("claude", "both", "all"):
             claude.uninstall()
-        if target in ("antigravity", "both"):
+        if target in ("antigravity", "both", "all"):
             antigravity.uninstall()
+        if target in ("kilo", "all"):
+            kilo.uninstall()
 
         print("\n--- Core ---")
         uninstall_core()
@@ -100,12 +104,14 @@ Examples:
     print("\n--- Legacy cleanup ---")
     migrate_from_legacy()
 
-    if target in ("claude", "both"):
+    if target in ("claude", "both", "all"):
         claude.install(use_symlink=args.link)
-    if target in ("antigravity", "both"):
+    if target in ("antigravity", "both", "all"):
         antigravity.install(use_symlink=args.link)
-
     install_core(use_symlink=args.link)
+
+    if target in ("kilo", "all"):
+        kilo.install(use_symlink=args.link)
 
     print("\n--- CLI ---")
     install_cli(use_symlink=args.link)

@@ -1,10 +1,10 @@
-"""Shared compression core used by both the Claude and Antigravity hooks.
+"""Shared compression core used by the Claude, Antigravity, and Kilo hooks.
 
-The two platforms integrate differently — Claude rewrites the Bash command to
-run through ``wrap.py`` (PreToolUse), while Antigravity compresses already-captured
-tool output (AfterTool) — but the *decision* of what to compress and the
-*bookkeeping* afterwards (audit log, savings, mismatch events) are identical.
-This module centralizes both so the two entry points stay in lock-step.
+The platforms integrate differently — Claude rewrites the Bash command to run
+through ``wrap.py`` (PreToolUse), while Antigravity and Kilo compress
+already-captured tool output (post-tool hooks) — but the *decision* of what to
+compress and the *bookkeeping* afterwards are identical.
+This module centralizes processing so all platform entry points stay in lock-step.
 """
 
 from __future__ import annotations
