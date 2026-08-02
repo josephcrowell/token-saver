@@ -192,6 +192,13 @@ installed skill. Structural code extraction is local and makes no Kilo Gateway
 or free-router model calls. Document/image semantic extraction may use Gemini
 only if you separately configure a Gemini API key.
 
+Each successful Graphify query is recorded in Token-Saver's SQLite database.
+`token-saver stats` reports Graphify context savings separately as an estimate,
+using Graphify's full-corpus token baseline minus the returned traversal size.
+`token-saver stats --json` also exposes `graphify` measurements and
+`combined_saved_tokens`. This avoids presenting estimated repository-context
+savings as directly measured shell-output compression.
+
 ### Method 2: Claude Code Plugin
 
 From the self-hosted marketplace:

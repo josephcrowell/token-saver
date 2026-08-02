@@ -120,6 +120,26 @@ class TestSavingsTracker:
         assert len(top) == 2
         assert top[0]["processor"] == "git"  # More saved
 
+    def test_record_graphify_saving_and_stats(self):
+        assert self.tracker.record_graphify_saving("/repo", "how auth works", 10000, 400)
+        stats = self.tracker.get_graphify_stats()
+        assert stats["session"]["queries"] == 1
+        assert stats["lifetime"]["projects"] == 1
+        assert stats["lifetime"]["baseline_tokens"] == 10000
+        assert stats["lifetime"]["query_tokens"] == 400
+        assert stats["lifetime"]["saved_tokens"] == 9600
+        assert stats["lifetime"]["ratio"] == 96.0
+
+    def test_graphify_duplicate_event_is_idempotent(self):
+        assert self.tracker.record_graphify_saving("/repo", "question", 10000, 500)
+        assert not self.tracker.record_graphify_saving("/repo", "question", 10000, 500)
+        assert self.tracker.get_graphify_stats()["lifetime"]["queries"] == 1
+
+    def test_graphify_rejects_non_saving_measurement(self):
+        assert not self.tracker.record_graphify_saving("/repo", "question", 500, 500)
+        assert not self.tracker.record_graphify_saving("/repo", "question", 500, 600)
+        assert self.tracker.get_graphify_stats()["lifetime"]["queries"] == 0
+
     def test_record_and_retrieve_mismatches(self):
         self.tracker.record_mismatch("docker ps", "docker", 1000, "claude_code")
         self.tracker.record_mismatch("docker ps", "docker", 1200, "claude_code")
@@ -354,6 +374,8 @@ class TestStatsCLI:
         assert "command" in data["top_commands"][0]
         assert "total_saved" in data["top_commands"][0]
         assert "avg_ratio" in data["top_commands"][0]
+        assert "graphify" in data
+        assert "combined_saved_tokens" in data
 
     def test_top_processors_order(self):
         self._seed_data()

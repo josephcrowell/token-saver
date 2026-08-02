@@ -5,6 +5,7 @@ import shutil
 import tempfile
 from unittest import mock
 
+
 class TestKiloInstaller:
     def setup_method(self):
         self.tmp_home = tempfile.mkdtemp()
@@ -70,6 +71,9 @@ class TestKiloInstaller:
             plugin = _render_plugin()
         assert 'String(input.tool || "").toLowerCase()' in plugin
         assert 'output.output = result.output' in plugin
+        assert '"tool.execute.before"' in plugin
+        assert "compressGraphify" in plugin
+        assert "graphify_metrics.py" in plugin
 
     def test_plugin_never_references_source_checkout(self):
         from installers import kilo

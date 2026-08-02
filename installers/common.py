@@ -310,6 +310,7 @@ CORE_FILES = [
     "skills/token-saver-config/SKILL.md",
     "skills/token-saver-graphify/SKILL.md",
     "commands/token-saver-stats.md",
+    "src/graphify_metrics.py",
     # Kilo Code plugin bridge
     "kilo/compress.py",
     "CLAUDE.md",

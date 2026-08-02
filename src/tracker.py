@@ -121,9 +121,23 @@ class SavingsTracker:
                         original_size INTEGER NOT NULL,
                         platform TEXT NOT NULL
                     );
+                    CREATE TABLE IF NOT EXISTS graphify_savings (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp REAL NOT NULL,
+                        session_id TEXT NOT NULL,
+                        project TEXT NOT NULL,
+                        question TEXT NOT NULL,
+                        corpus_tokens INTEGER NOT NULL,
+                        query_tokens INTEGER NOT NULL,
+                        saved_tokens INTEGER NOT NULL
+                    );
                     CREATE INDEX IF NOT EXISTS idx_savings_session ON savings(session_id);
                     CREATE INDEX IF NOT EXISTS idx_savings_timestamp ON savings(timestamp);
                     CREATE INDEX IF NOT EXISTS idx_mismatches_ts ON mismatches(timestamp);
+                    CREATE UNIQUE INDEX IF NOT EXISTS idx_graphify_event
+                        ON graphify_savings(
+                            session_id, project, question, corpus_tokens, query_tokens
+                        );
                 """)
             except sqlite3.DatabaseError:
                 # Corrupted DB — recreate (drop WAL/SHM sidecars too)
@@ -158,6 +172,16 @@ class SavingsTracker:
                         processor TEXT NOT NULL,
                         original_size INTEGER NOT NULL,
                         platform TEXT NOT NULL
+                    );
+                    CREATE TABLE graphify_savings (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        timestamp REAL NOT NULL,
+                        session_id TEXT NOT NULL,
+                        project TEXT NOT NULL,
+                        question TEXT NOT NULL,
+                        corpus_tokens INTEGER NOT NULL,
+                        query_tokens INTEGER NOT NULL,
+                        saved_tokens INTEGER NOT NULL
                     );
                 """)
 
@@ -241,6 +265,83 @@ class SavingsTracker:
             except sqlite3.Error:
                 with contextlib.suppress(sqlite3.Error):
                     self.conn.rollback()
+
+    def record_graphify_saving(
+        self,
+        project: str,
+        question: str,
+        corpus_tokens: int,
+        query_tokens: int,
+    ) -> bool:
+        """Record one measured Graphify query reduction.
+
+        ``corpus_tokens`` is Graphify's naive full-corpus baseline and
+        ``query_tokens`` is the context emitted for this query. Duplicate events
+        from the same session are ignored so stats collection is idempotent.
+        """
+        corpus_tokens = max(0, int(corpus_tokens))
+        query_tokens = max(0, int(query_tokens))
+        if corpus_tokens <= 0 or query_tokens <= 0 or query_tokens >= corpus_tokens:
+            return False
+        now = time.time()
+        with self._lock:
+            try:
+                cursor = self.conn.execute(
+                    """
+                    INSERT OR IGNORE INTO graphify_savings
+                        (timestamp, session_id, project, question, corpus_tokens,
+                         query_tokens, saved_tokens)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        now,
+                        self.session_id,
+                        project[:1000],
+                        question[:1000],
+                        corpus_tokens,
+                        query_tokens,
+                        corpus_tokens - query_tokens,
+                    ),
+                )
+                self.conn.commit()
+                return cursor.rowcount > 0
+            except sqlite3.Error:
+                with contextlib.suppress(sqlite3.Error):
+                    self.conn.rollback()
+                return False
+
+    def get_graphify_stats(self, session_id: str | None = None) -> dict:
+        """Return measured Graphify savings for a session and lifetime."""
+
+        def aggregate(where: str = "", params: tuple = ()) -> dict:
+            row = self.conn.execute(
+                f"""SELECT COUNT(*) AS queries,
+                           COUNT(DISTINCT project) AS projects,
+                           COALESCE(SUM(corpus_tokens), 0) AS baseline_tokens,
+                           COALESCE(SUM(query_tokens), 0) AS query_tokens,
+                           COALESCE(SUM(saved_tokens), 0) AS saved_tokens
+                    FROM graphify_savings {where}""",  # noqa: S608
+                params,
+            ).fetchone()
+            baseline = row["baseline_tokens"]
+            saved = row["saved_tokens"]
+            ratio = (saved / baseline * 100) if baseline > 0 else 0.0
+            return {
+                "queries": row["queries"],
+                "projects": row["projects"],
+                "baseline_tokens": baseline,
+                "query_tokens": row["query_tokens"],
+                "saved_tokens": saved,
+                "ratio": round(ratio, 1),
+                "method": "graphify_query_vs_full_corpus_estimate",
+            }
+
+        sid = session_id or self.session_id
+        with self._lock:
+            return {
+                "session": aggregate("WHERE session_id = ?", (sid,)),
+                "lifetime": aggregate(),
+            }
 
     def get_processor_mismatches(self, limit: int = 10) -> list[dict]:
         """Return processors that most often ran without compressing enough."""
@@ -397,6 +498,16 @@ class SavingsTracker:
                 f"{self._format_tokens(saved_tokens)} saved ({lifetime['ratio']}%)"
             )
 
+        graphify = self.get_graphify_stats()
+        if graphify["lifetime"]["queries"] > 0:
+            measured = graphify["lifetime"]
+            parts.append(
+                f"Graphify: {measured['queries']} queries, "
+                f"{self._format_tokens(measured['saved_tokens'])} avoided (estimated)"
+            )
+            combined = self._chars_to_tokens(lifetime["saved"]) + measured["saved_tokens"]
+            parts.append(f"Combined: {self._format_tokens(combined)} saved")
+
         if session["commands"] > 0:
             saved_tokens = self._chars_to_tokens(session["saved"])
             parts.append(
@@ -404,7 +515,7 @@ class SavingsTracker:
                 f"{self._format_tokens(saved_tokens)} saved ({session['ratio']}%)"
             )
 
-        if lifetime["commands"] == 0:
+        if lifetime["commands"] == 0 and graphify["lifetime"]["queries"] == 0:
             parts.append("Ready. No compressions recorded yet.")
 
         return " | ".join(parts)

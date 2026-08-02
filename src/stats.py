@@ -94,6 +94,18 @@ def _print_summary(lifetime):
     print(f"  {'Efficiency:':<20s} {_progress_bar(ratio)}  {color}{ratio}%{RESET}")
 
 
+def _print_combined(lifetime, graphify):
+    measured = graphify["lifetime"]
+    if measured["queries"] == 0:
+        return
+    direct_saved = _chars_to_tokens(lifetime["saved"])
+    combined = direct_saved + measured["saved_tokens"]
+    print(
+        f"  {'Combined saved:':<20s} {BOLD_WHITE}{_format_tokens(combined)}{RESET} "
+        f"{DIM}(direct + estimated Graphify){RESET}"
+    )
+
+
 def _print_by_command(top_commands):
     if not top_commands:
         return
@@ -144,8 +156,37 @@ def _print_mismatches(mismatches):
     print(f"  {BOLD_YELLOW}{'─' * WIDTH}{RESET}")
     print(f"  {DIM}Specialized processor ran but didn't compress enough.{RESET}")
     print()
-    for m in mismatches:
-        print(f"  {CYAN}{m['processor']:<20s}{RESET} {m['count']:>5d} events")
+    for mismatch in mismatches:
+        print(
+            f"  {CYAN}{mismatch['processor']:<20s}{RESET} "
+            f"{mismatch['count']:>5d} events"
+        )
+    print()
+
+
+def _print_graphify(graphify):
+    lifetime = graphify["lifetime"]
+    if lifetime["queries"] == 0:
+        return
+    print()
+    print(f"  {BOLD_GREEN}Graphify Context Savings (Estimated){RESET}")
+    print(f"  {BOLD_YELLOW}{'─' * WIDTH}{RESET}")
+    print(f"  {'Queries measured:':<20s} {BOLD_WHITE}{lifetime['queries']}{RESET}")
+    print(f"  {'Projects:':<20s} {BOLD_WHITE}{lifetime['projects']}{RESET}")
+    print(
+        f"  {'Baseline tokens:':<20s} "
+        f"{BOLD_WHITE}{_format_tokens(lifetime['baseline_tokens'])}{RESET}"
+    )
+    print(
+        f"  {'Query tokens:':<20s} "
+        f"{BOLD_WHITE}{_format_tokens(lifetime['query_tokens'])}{RESET}"
+    )
+    print(
+        f"  {'Tokens avoided:':<20s} "
+        f"{BOLD_WHITE}{_format_tokens(lifetime['saved_tokens'])}{RESET} "
+        f"{GREEN}({lifetime['ratio']}%){RESET}"
+    )
+    print(f"  {DIM}Estimate: query traversal versus full-corpus context.{RESET}")
     print()
 
 
@@ -170,6 +211,7 @@ def main():
     top_processors = tracker.get_top_processors(limit=5)
     top_commands = tracker.get_top_commands(limit=10)
     mismatches = tracker.get_processor_mismatches(limit=10)
+    graphify = tracker.get_graphify_stats(session_id=session_id)
     tracker.close()
 
     if as_json:
@@ -180,6 +222,9 @@ def main():
                 "top_processors": top_processors,
                 "top_commands": top_commands,
                 "mismatches": mismatches,
+                "graphify": graphify,
+                "combined_saved_tokens": _chars_to_tokens(lifetime["saved"])
+                + graphify["lifetime"]["saved_tokens"],
             },
             sys.stdout,
         )
@@ -187,7 +232,7 @@ def main():
         return
 
     # --- Human-readable output ---
-    if lifetime["commands"] == 0:
+    if lifetime["commands"] == 0 and graphify["lifetime"]["queries"] == 0:
         print()
         print(f"  {BOLD_GREEN}Token-Saver Savings{RESET}")
         print(f"  {BOLD_YELLOW}{'═' * WIDTH}{RESET}")
@@ -198,8 +243,10 @@ def main():
 
     _print_header()
     _print_summary(lifetime)
+    _print_combined(lifetime, graphify)
     _print_by_command(top_commands)
     _print_mismatches(mismatches)
+    _print_graphify(graphify)
 
 
 if __name__ == "__main__":
