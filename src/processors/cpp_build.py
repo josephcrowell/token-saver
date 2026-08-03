@@ -44,11 +44,15 @@ class CppBuildProcessor(Processor):
 
     @staticmethod
     def _has_failure(lines: list[str]) -> bool:
+        # Note: no trailing \b after alternatives ending in ':' — a colon
+        # followed by a space has no word boundary, so `\berror:\b` never
+        # matches "file.cpp:1: error: ...". FAILED keeps its own \b.
         return any(
             re.search(
-                r"\b(?:fatal error|error:|undefined reference|multiple definition|ld returned|"
-                r"collect2: error|ninja: build stopped|FAILED:|AutoMoc error|AutoUic error|"
-                r"RCC: Error|Project ERROR|CMake Error|FAILED)\b",
+                r"\b(?:fatal error|error:|undefined reference|multiple definition|"
+                r"ld returned|collect2: error|ninja: build stopped|FAILED:|"
+                r"AutoMoc error|AutoUic error|RCC: Error|Project ERROR|CMake Error|"
+                r"FAILED\b)",
                 line,
                 re.IGNORECASE,
             )
@@ -69,6 +73,11 @@ class CppBuildProcessor(Processor):
         )
 
     def _extract_failures(self, lines: list[str]) -> str:
+        # clang-format violation runs: each violation is error+source+caret,
+        # and locations matter more than the caret art. Group by file.
+        if any("clang-format-violations" in line for line in lines):
+            return self._extract_clang_format(lines)
+
         keep = [False] * len(lines)
         primary = re.compile(
             r"(?:^|\s)(?:fatal error|error:|warning:|note:|undefined reference|multiple definition|"
@@ -91,6 +100,28 @@ class CppBuildProcessor(Processor):
 
         result = [line for i, line in enumerate(lines) if keep[i] and line.strip()]
         return "\n".join(result) if result else "\n".join(lines[-40:])
+
+    @staticmethod
+    def _extract_clang_format(lines: list[str]) -> str:
+        """Collapse clang-format violation dumps by file."""
+        per_file: dict[str, list[str]] = {}
+        for line in lines:
+            m = re.match(r"^([^:]+:\d+:\d+): error: code should be clang-formatted", line)
+            if m:
+                per_file.setdefault(m.group(1), []).append(line.strip())
+        if not per_file:
+            return "\n".join(lines[-40:])
+
+        total = sum(len(v) for v in per_file.values())
+        result = [f"{total} clang-format violations in {len(per_file)} file(s):"]
+        for f, locs in sorted(per_file.items(), key=lambda kv: -len(kv[1]))[:15]:
+            result.append(f"  {f} ({len(locs)})")
+            result.extend(f"    {loc}" for loc in locs[:3])
+            if len(locs) > 3:
+                result.append(f"    ... ({len(locs) - 3} more locations)")
+        if len(per_file) > 15:
+            result.append(f"  ... ({len(per_file) - 15} more files)")
+        return "\n".join(result)
 
     def _summarize_success(self, lines: list[str]) -> str:
         warnings = [line.strip() for line in lines if re.search(r"\bwarning:", line, re.I)]

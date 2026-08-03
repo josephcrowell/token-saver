@@ -4791,3 +4791,314 @@ class TestActProcessor:
         out = "\n".join(lines)
         result = self.p.process("act", out)
         assert "error: step failed" in result
+
+
+class TestMpbtProcessor:
+    def setup_method(self):
+        from src.processors.mpbt import MpbtProcessor
+        self.p = MpbtProcessor()
+
+    def test_can_handle(self):
+        assert self.p.can_handle("/home/user/go/bin/mpbt-builder -solution s.yaml -workdir _WORK_ build x")
+        assert self.p.can_handle("./build-all")
+        assert self.p.can_handle("rm -rf _WORK_/build/x && /home/user/go/bin/mpbt-builder -solution s build x")
+        assert not self.p.can_handle("ninja -C build")
+        assert not self.p.can_handle("cmake --build build")
+
+    def test_success_summarizes_packages(self):
+        lines = [
+            "2026/08/02 12:00:00 loading solution: cf/solutions/devuan.yaml",
+            "2026/08/02 12:00:00 [PROJECT] loading packages dir=/x prefix=",
+            "2026/08/02 12:00:01 [PROJECT] ENV: PATH=/x:/bin",
+        ]
+        lines += [
+            f"2026/08/02 12:00:0{i} [os-installed/lib{i}] no gitspec - nothing to clone here"
+            for i in range(20)
+        ]
+        lines += [
+            f"2026/08/02 12:00:1{i} [os-installed/lib{i}] pkg-config probe result: 1.{i}"
+            for i in range(15)
+        ]
+        lines += [
+            "2026/08/02 12:01:00 [sonicde/pkg-a] building ...",
+            "2026/08/02 12:01:00 [sonicde/pkg-a] EXEC: [mkdir -p /x]",
+            "2026/08/02 12:01:30 [sonicde/pkg-a] current rev is abc123",
+            "2026/08/02 12:01:30 [sonicde/pkg-a] finished build",
+            "2026/08/02 12:02:00 creating tarball: /x/tarball/sonicde/pkg-a.tar.gz",
+        ]
+        result = self.p.process("mpbt-builder build x", "\n".join(lines))
+        assert "MPBT build succeeded: 1 package(s) built." in result
+        assert "sonicde/pkg-a" in result
+        assert "pkg-a.tar.gz" in result
+        assert "15 system probes" in result
+        assert "20 system packages" in result
+        assert len(result) < 600
+
+    def test_failure_keeps_mpbt_and_cmake_errors(self):
+        lines = [
+            f"2026/08/02 12:00:0{i} [PROJECT] loading packages dir=/x{i} prefix=" for i in range(30)
+        ]
+        lines += [
+            "[  5%] Building CXX object foo.cpp.o",
+            "CMake Error at /x/CMakeLists.txt:138 (feature_summary):",
+            "  feature_summary() Error: REQUIRED package(s) are missing, aborting CMake run.",
+            "2026/08/02 12:46:30 [sonicde/dr] Configure error: exit status 1",
+            "2026/08/02 12:46:30 BUILD ERR on sonicde/sonic-dr: exit status 1",
+            "panic: build failed: exit status 1",
+            "goroutine 1 [running]:",
+            "github.com/metux/mpbt/frontend.doBuild(0x205)",
+            "\t/home/go/pkg/mod/github.com/metux/mpbt@v0.1.20/frontend/dobuild.go:15 +0xbc",
+        ]
+        result = self.p.process("mpbt-builder build sonic-dr", "\n".join(lines))
+        assert "MPBT build failed." in result
+        assert "BUILD ERR on sonicde/sonic-dr" in result
+        assert "Configure error: exit status 1" in result
+        assert "panic: build failed" in result
+        assert "CMake Error" in result
+        assert "feature_summary" in result
+        assert "goroutine" not in result
+        assert "loading packages dir" not in result
+        assert len(result) < 2000
+
+
+class TestCmakeInstallProcessor:
+    def setup_method(self):
+        from src.processors.cmake_install import CmakeInstallProcessor
+        self.p = CmakeInstallProcessor()
+
+    def test_can_handle(self):
+        assert self.p.can_handle("cmake --install build")
+        assert self.p.can_handle("cmake --install build --prefix /usr")
+        assert self.p.can_handle("make install DESTDIR=/tmp/stage")
+        assert self.p.can_handle("DESTDIR=/tmp/stage ninja install")
+        assert self.p.can_handle("cmake --build build && cmake --install build")
+        assert not self.p.can_handle("cmake --build build")
+        assert not self.p.can_handle("ninja -C build")
+        assert not self.p.can_handle("make -j8")
+
+    def test_groups_install_lines_by_directory(self):
+        lines = [
+            f"-- Installing: /usr/share/locale/lang{i}/LC_MESSAGES/pkg.mo" for i in range(120)
+        ]
+        lines += [f"-- Installing: /usr/lib/python3.14/site-packages/PySide6/mod{i}.so" for i in range(40)]
+        lines += [
+            '-- Set non-toolchain portion of runtime path of "/usr/lib/x.so" to "$ORIGIN"',
+            "-- Up-to-date: /usr/include/pkg/header.h",
+        ]
+        result = self.p.process("cmake --install build", "\n".join(lines))
+        assert "Install succeeded: 160 installed, 1 up-to-date." in result
+        assert "LC_MESSAGES" in result
+        assert "site-packages" in result
+        assert "RPATH adjusted on 1 file(s)" in result
+        assert result.count("Installing:") == 0
+        assert len(result) < 1200
+
+    def test_keeps_install_errors(self):
+        lines = [
+            "-- Installing: /usr/lib/foo.so",
+            "CMake Error at cmake_install.cmake:42 (file):",
+            "  file INSTALL cannot find \"/x/missing.so\": No such file or directory.",
+        ]
+        result = self.p.process("cmake --install build", "\n".join(lines))
+        assert "CMake install failed." in result
+        assert "cannot find" in result
+
+
+class TestDesktopValidateProcessor:
+    def setup_method(self):
+        from src.processors.desktop_validate import DesktopValidateProcessor
+        self.p = DesktopValidateProcessor()
+
+    def test_can_handle(self):
+        assert self.p.can_handle("desktop-file-validate foo.desktop")
+        assert self.p.can_handle("find . -name '*.desktop' | xargs desktop-file-validate")
+        assert self.p.can_handle('for f in *.desktop; do desktop-file-validate "$f"; done')
+        assert not self.p.can_handle("update-desktop-database")
+
+    def test_groups_by_rule_and_file(self):
+        lines = []
+        for i in range(200):
+            lines.append(
+                f"./file{i}.desktop: error: value \"a;b;\" for key \"Actions\" in group "
+                "\"Desktop Entry\" contains invalid action identifier \"a\""
+            )
+        lines.append("./ok.desktop: warning: key \"Encoding\" is deprecated")
+        result = self.p.process("desktop-file-validate *.desktop", "\n".join(lines))
+        assert "200 error(s)" in result or "error(s)" in result
+        assert "201 file(s)" in result
+        assert "invalid action identifier" in result
+        assert "200x" in result
+        assert len(result) < 2000
+
+
+class TestGraphifyProcessor:
+    def setup_method(self):
+        from src.processors.graphify import GraphifyProcessor
+        self.p = GraphifyProcessor()
+
+    def test_can_handle(self):
+        assert self.p.can_handle("graphify update .")
+        assert self.p.can_handle("graphify watch src/")
+        assert self.p.can_handle("GRAPHIFY_MAX_GRAPH_BYTES=1GB graphify update src/")
+        assert not self.p.can_handle("graphify query \"what calls foo\"")
+        assert not self.p.can_handle("graphify .")
+
+    def test_collapses_progress_and_warnings(self):
+        lines = ["Re-extracting code files in /x (no LLM needed)..."]
+        lines += [
+            f"  AST extraction: {i*100}/500 uncached files ({i*20}%) [16 workers]"
+            for i in range(1, 6)
+        ]
+        lines += [
+            '  warning: 103 .json file(s) contributed nothing to the graph because a dependency is missing: tree-sitter-json not installed. (#1745)',
+            '  warning: 60 .h file(s) contributed nothing to the graph because a dependency is missing: tree_sitter_cpp not installed. (#1745)',
+            '[graphify] backed up curated graph (4 files) -> 2026-08-02/',
+            '[graphify watch] Rebuilt: 34 nodes, 23 edges, 11 communities',
+            'Code graph updated. For doc/paper/image changes run /graphify --update in your AI assistant.',
+        ]
+        result = self.p.process("graphify update .", "\n".join(lines))
+        assert "Re-extracting code files" in result
+        assert "500/500" in result
+        assert "tree-sitter missing: 163 file(s)" in result
+        assert "Rebuilt: 34 nodes" in result
+        assert "Code graph updated" in result
+        assert result.count("AST extraction") == 1
+        assert len(result) < 900
+
+
+class TestCppTestCtestVerboseCompression:
+    """Ensure ctest with verbose Qt Test / LSAN output is collapsed."""
+
+    def setup_method(self):
+        from src.processors.cpp_test import CppTestProcessor
+        self.p = CppTestProcessor()
+
+    def test_ctest_qttest_failure_drops_verbose_pass_lines(self):
+        lines = ["Test project /tmp/kilo/tests"]
+        lines += [f"  {i}/2 Test  #{i}: t{i} ...........................   Passed 0.0{i} sec" for i in (1, 2)]
+        lines += [
+            " 1/2 Test  #1: t1 ................................   Passed 0.01 sec",
+            " 2/2 Test  #2: t2 ...............................***Failed 0.31 sec",
+            "********* Start testing of T2 *********",
+            "Config: Using QtTest library 6.11.1, Qt 6.11.1 (x86_64)",
+            "PASS   : T2::test_a()",
+            "PASS   : T2::test_b()",
+            "QDEBUG : T2::test_c() verbose thing",
+            "FAIL!  : T2::test_d() Compared values are not the same",
+            "   Actual   (size.width()): 9",
+            "   Expected (10)          : 10",
+            "   Loc: [/tmp/t2.cpp(88)]",
+            "Totals: 2 passed, 1 failed, 0 skipped, 0 blacklisted, 7ms",
+            "********* Finished testing of T2 *********",
+            "83% tests passed, 1 tests failed out of 2",
+        ]
+        result = self.p.process("ctest --test-dir /tmp/kilo/tests", "\n".join(lines))
+        assert "FAIL!  : T2::test_d()" in result
+        assert "Actual" in result and "size.width()" in result
+        assert "Expected" in result
+        assert "Loc: [/tmp/t2.cpp(88)]" in result
+        assert "100%" not in result  # PASS line noise gone
+        # Verbose QtTest lines dropped
+        assert "QDEBUG" not in result
+        # Many-body PASS lines dropped
+        assert result.count("PASS   :") == 0
+        # Summary kept
+        assert "1 tests failed out of 2" in result or "1 tests failed" in result
+
+    def test_ctest_qfatal_caps_stack_frames_per_thread(self):
+        lines = [
+            "Test project /x",
+            " 1/1 Test  #1: x ........***Exception: 0.5 sec",
+            "********* Start testing of X *********",
+            "Config: Using QtTest library",
+            "QFATAL : X::test() ASSERT: false",
+            "FAIL!  : X::test()",
+            "   Loc: [/x.cpp(10)]",
+            "Totals: 0 passed, 1 failed, 0 skipped, 0 blacklisted, 5ms",
+            "********* Finished testing of X *********",
+            "",
+            "Thread 4 (Thread 0x7fabc (LWP 500939) \"QDBusConnection\"):",
+        ]
+        for i in range(20):
+            lines.append(f"#{i} 0x00007fabc in ?? () at /lib/libc.so.6")
+        lines.append("Errors while running CTest")
+        result = self.p.process("ctest --test-dir /x", "\n".join(lines))
+        assert "QFATAL" in result
+        assert "more stack frames" in result
+        assert result.count("0x00007fabc") < 15
+
+
+class TestGitRefListingCompression:
+    """git ls-remote / show-ref / for-each-ref grouped by namespace."""
+
+    def setup_method(self):
+        from src.processors.git import GitProcessor
+        self.p = GitProcessor()
+
+    def test_can_handle(self):
+        assert self.p.can_handle("git ls-remote origin")
+        assert self.p.can_handle("git show-ref")
+        assert self.p.can_handle("git for-each-ref refs/heads")
+        # subcommands handled by other functions still match the git hook
+        assert self.p.can_handle("git log --oneline")
+        assert self.p.can_handle("git status --short")
+        assert not self.p.can_handle("git grep foo")
+
+    def test_groups_refs_by_namespace(self):
+        lines = [f"{'a' * 40}\trefs/heads/branch{i}" for i in range(5)]
+        lines += [f"{'b' * 40}\trefs/tags/v{i}.0" for i in range(8)]
+        lines += [f"{'c' * 40}\trefs/backups/snapshot-{i}" for i in range(50)]
+        result = self.p.process("git ls-remote origin", "\n".join(lines))
+        assert "63 refs:" in result
+        assert "refs/backups/" in result
+        assert "refs/tags/" in result
+        assert "refs/heads/" in result
+        assert "snapshot-0" in result
+        assert len(result) < 1000
+
+    def test_show_ref_with_space_delimiter(self):
+        lines = [f"{'a' * 40} refs/heads/main", f"{'b' * 40} refs/tags/v1"]
+        result = self.p.process("git show-ref", "\n".join(lines))
+        assert "2 refs:" in result
+        assert "refs/heads/" in result
+        assert "refs/tags/" in result
+
+
+class TestCppBuildErrorDetection:
+    """The error: word-boundary regex must match plain 'error:' lines."""
+
+    def setup_method(self):
+        from src.processors.cpp_build import CppBuildProcessor
+        self.p = CppBuildProcessor()
+
+    def test_detects_clang_format_violations(self):
+        lines = [
+            "kcms/x.cpp:186:108: error: code should be clang-formatted [-Wclang-format-violations]",
+            "    if (foo) return;",
+            "                          ^",
+            "kcms/y.cpp:42:7: error: code should be clang-formatted [-Wclang-format-violations]",
+        ]
+        assert self.p._has_failure(lines)
+
+    def test_detects_plain_compiler_error(self):
+        lines = ["src/foo.cpp:1:1: error: missing header"]
+        assert self.p._has_failure(lines)
+
+    def test_collapses_clang_format_violations_by_file(self):
+        lines = []
+        for i in range(10):
+            lines.append(
+                f"kcms/a{i}.cpp:1{i}:1: error: code should be clang-formatted "
+                f"[-Wclang-format-violations]"
+            )
+            lines.append("    if (foo) return;")
+            lines.append("                  ^")
+        result = self.p.process("ninja clang-format", "\n".join(lines))
+        assert "10 clang-format violations" in result
+        assert "10 file(s)" in result
+        # 10 file header lines + 10 violation lines, each mentioning kcms/
+        assert result.count("kcms/") == 20
+        # Source/caret lines dropped
+        assert "if (foo) return;" not in result
+        assert "                  ^" not in result
+        assert len(result) < 2000

@@ -14,8 +14,10 @@ _GIT_OPTS = (
 )
 
 _GIT_SUBCMDS = (
-    r"(status|diff|log|show|push|pull|fetch|clone|branch|stash|reflog|remote"
-    r"|blame|cherry-pick|rebase|merge)"
+    r"(cherry-pick|for-each-ref|show-ref"
+    r"|status|diff|log|show|push|pull|fetch|clone|branch|stash|reflog|remote"
+    r"|ls-remote"
+    r"|blame|rebase|merge)"
 )
 _GIT_CMD_RE = re.compile(rf"\bgit\s+{_GIT_OPTS}{_GIT_SUBCMDS}\b")
 
@@ -23,7 +25,7 @@ _GIT_CMD_RE = re.compile(rf"\bgit\s+{_GIT_OPTS}{_GIT_SUBCMDS}\b")
 class GitProcessor(Processor):
     priority = 20
     hook_patterns = [
-        rf"^git\s+{_GIT_OPTS}(status|diff|log|show|push|pull|fetch|clone|branch|stash|reflog|remote|blame|cherry-pick|rebase|merge)\b",
+        rf"^git\s+{_GIT_OPTS}(status|diff|log|show|push|pull|fetch|clone|branch|stash|reflog|remote|ls-remote|show-ref|for-each-ref|blame|cherry-pick|rebase|merge)\b",
     ]
 
     @property
@@ -60,6 +62,8 @@ class GitProcessor(Processor):
             return output
         if subcmd == "reflog":
             return self._process_reflog(output)
+        if subcmd in ("ls-remote", "show-ref", "for-each-ref"):
+            return self._process_refs(output)
         if subcmd == "blame":
             return self._process_blame(output)
         if subcmd == "remote":
@@ -482,6 +486,48 @@ class GitProcessor(Processor):
         if len(lines) <= max_entries:
             return output
         return "\n".join(lines[:max_entries]) + f"\n... ({len(lines) - max_entries} more entries)"
+
+    @staticmethod
+    def _process_refs(output: str) -> str:
+        """Compress ls-remote / show-ref / for-each-ref output by namespace."""
+        lines = output.strip().splitlines()
+        by_ns: dict[str, list[str]] = {}
+        bare_count = 0
+        for raw in lines:
+            stripped = raw.strip()
+            if not stripped:
+                continue
+            # ls-remote / show-ref format: "<sha>\trefs/heads/main"
+            # for-each-ref with format may vary but always contains refs/...
+            if "\t" in stripped:
+                _sha, ref = stripped.split("\t", 1)
+            elif " " in stripped:
+                _sha, ref = stripped.split(" ", 1)
+            else:
+                bare_count += 1
+                continue
+            if not ref.startswith("refs/"):
+                bare_count += 1
+                continue
+            parts = ref.split("/", 2)
+            bucket = "/".join(parts[:2]) if len(parts) >= 2 else ref
+            by_ns.setdefault(bucket, []).append(ref)
+        if not by_ns:
+            return output
+        total = sum(len(v) for v in by_ns.values())
+        result = [f"{total} refs:"]
+        for ns, refs in sorted(by_ns.items(), key=lambda kv: -len(kv[1]))[:12]:
+            line = f"  {ns}/ ({len(refs)})"
+            if len(refs) <= 3:
+                line += " [" + ", ".join(r.split("/")[-1] for r in refs) + "]"
+            else:
+                line += f" [{', '.join(r.split('/')[-1] for r in refs[:3])}, ...]"
+            result.append(line)
+        if len(by_ns) > 12:
+            result.append(f"  ... ({len(by_ns) - 12} more namespaces)")
+        if bare_count:
+            result.append(f"  +{bare_count} non-ref lines (kept as-is)")
+        return "\n".join(result)
 
     def _process_remote(self, output: str) -> str:
         """Compress git remote -v: deduplicate fetch/push lines."""
