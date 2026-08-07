@@ -10,9 +10,9 @@
 
 Token-Saver is a drop-in **context-window optimizer for AI coding assistants**. It compresses the verbose terminal output your agent reads — `git diff`, `pytest`, `npm install`, `terraform plan`, `kubectl`, `docker` — so you spend fewer tokens, stay under your LLM context limit, and get faster, cheaper, more focused responses.
 
-**45 specialized processors** understand the tools you already use — git, pytest, C/C++ compilers, CMake/Ninja, Qt/QML tooling, Flutter / Dart, ADB, autotools, fastlane, CocoaPods, Swift Package Manager, cargo, go, docker, kubernetes, terraform, pulumi, helm, ansible, aws, gcloud, and more. Each one knows exactly what to keep and what to discard: errors, diffs, stack traces, and actionable data stay; progress bars, passing tests, download spinners, and boilerplate go.
+**48 specialized processors** understand the tools you already use — git, pytest, C/C++ compilers, CMake/Ninja, Qt/QML tooling, Flutter / Dart, ADB, autotools, fastlane, CocoaPods, Swift Package Manager, cargo, go, docker, kubernetes, terraform, pulumi, helm, ansible, aws, gcloud, and more. Each one knows exactly what to keep and what to discard: errors, diffs, stack traces, and actionable data stay; progress bars, passing tests, download spinners, and boilerplate go. A suite of deterministic **headroom compression techniques** — entropy-based preservation, adaptive sizing, stack-trace collapse, cross-turn dedup — runs underneath the processors, adding zero LLM calls.
 
-Compatible with **Kilo Code**, **Claude Code**, and **Antigravity CLI**. No extra LLM calls. Fully deterministic. One install, instant savings.
+Compatible with **Kilo Code**, **Claude Code**, and **Antigravity CLI**. No extra LLM calls. Fully deterministic. One install, instant savings. Optional **Graphify** integration adds graph-aware compression when a knowledge graph is present.
 
 **Why developers use Token-Saver:**
 
@@ -52,22 +52,27 @@ Token-Saver takes a different approach from LLM-based or caching solutions — s
 ### Architecture
 
 ```
-CLI command  -->  Specialized processor  -->  Compressed output
-                        |
-                  45 processors
-                  (git, test, cargo, go, build,
-                   lint, package_list, python_install,
-                   maven_gradle, bun, network, docker,
-                   kubectl, terraform, pulumi, cdktf,
-                   nix, mise, env, search, system_info,
-                   gh, db_query, cloud_cli, ansible,
-                   helm, syslog, ssh, jq_yq, just, act,
-                   structured_log, file_listing,
-                   file_content, C/C++ build/analysis/tests,
-                   Qt/QML tooling, Flutter / Dart, ADB,
-                   CMake configure + install, autotools,
-                   iOS toolchain (fastlane, CocoaPods, SPM,
-                   xcodebuild), generic)
+CLI command  -->  Specialized processor  -->  Headroom techniques  -->  Compressed output
+                         |                          |
+                   48 processors              _signals/ package
+                   (git, test, cargo, go,     (entropy, adaptive sizer,
+                    build, lint, package_      error detection, stack
+                    list, python_install,      trace collapse, similar
+                    maven_gradle, bun,         trailing dedup, JSON
+                    network, docker,           mask, cross-turn dedup,
+                    kubectl, terraform,         graphify context)
+                    pulumi, cdktf, nix,
+                    mise, env, search,
+                    system_info, gh, db_query,
+                    cloud_cli, ansible, helm,
+                    syslog, ssh, jq_yq, just,
+                    act, structured_log,
+                    file_listing, file_content,
+                    C/C++ build/analysis/tests,
+                    Qt/QML tooling, Flutter/Dart,
+                    ADB, CMake configure+install,
+                    autotools, iOS toolchain,
+                    generic)
 ```
 
 The engine (`CompressionEngine`) maintains a priority-ordered chain of processors.
@@ -79,6 +84,43 @@ the engine tries the generic processor as a fallback before returning uncompress
 
 After the specialized processor runs, a lightweight cleanup pass (`clean()`)
 strips residual ANSI codes and collapses consecutive blank lines.
+
+### Headroom Compression Techniques
+
+Token-Saver ports several deterministic techniques from the
+[headroom](https://github.com/nicholishen/headroom) conversation proxy. These
+run as shared signal utilities under `src/processors/_signals/` — they are
+**not** auto-discovered as processors but are imported explicitly by the
+processors and the generic pipeline that need them. See
+[`docs/processors/headroom_techniques.md`](docs/processors/headroom_techniques.md)
+for full details.
+
+| Technique | What it does |
+|---|---|
+| **Entropy preservation** | Detects high-entropy content (tokens, secrets, hashes) via normalized Shannon entropy and marks those lines as "sticky" — never truncated in the middle |
+| **Adaptive sizing** | Replaces hardcoded `[:N]` list caps with the Kneedle algorithm (bigram diversity + simhash clustering + zlib validation) so the keep-count adapts to content diversity |
+| **Centralized error detection** | Keyword sets transcribed from headroom's Rust `keyword_detector.rs`, zero-result scrubbing (so "no errors found" isn't a false positive), and a dual-gate that requires 2+ distinct error indicators for strong-error classification |
+| **Stack-trace collapse** | Detects 16 trace patterns, keeps the first 3 frames + up to 5 app-code frames (paths not in `site-packages/`, `node_modules/`, etc.), collapses the rest into `[... N runtime frames collapsed]`. Fixed blank-line bug from headroom's Python port |
+| **Similar trailing dedup** | Splits lines on first `:` or `=`, normalizes the trailing region (`\d+`→N, `0x...`→ADDR, `/path/`→/PATH/), collapses consecutive lines with identical normalized forms |
+| **Structure-mask JSON** | Hand-rolled JSON tokenizer that handles truncated/partial JSON gracefully (no `json.loads`), with depth-aware token preservation rules |
+| **Cross-turn dedup** | Block-level dedup across conversation turns — when the same output reappears, it's replaced with `[↑{N}L same as msg {ref}: {anchor}]`. Corpus persisted in SQLite (`dedup_corpus` table), not process memory |
+| **Line scoring** | `score_line()` returns `(category, score)` with headroom weights (ERROR=1.0, SECURITY=0.85, WARNING=0.5, IMPORTANCE=0.3); `rank_lines()` combines keyword (0.6) and graph (0.4) scores |
+
+### Graphify-Aware Compression
+
+When a [Graphify](https://github.com/nicholishen/graphify) knowledge graph
+(`graphify-out/graph.json`) is detected in the project tree, Token-Saver
+lazily loads it and uses it for smarter compression decisions. This is fully
+optional and fails open to neutral results when Graphify or its dependencies
+(`networkx`, `numpy`, `rapidfuzz`) are unavailable. See
+[`docs/processors/graphify_integration.md`](docs/processors/graphify_integration.md)
+for full details.
+
+- **File importance**: degree centrality normalized by max degree — high-centrality files are prioritized in error output
+- **Symbol resolution**: resolve identifiers in output lines to graph nodes
+- **Graph-aware line ranking**: `rank_lines()` combines keyword scores (0.6 weight) with graph scores (0.4 weight); when Graphify is absent, output is identical to keyword-only
+- **Community-aware sizing**: `compute_keep_count()` resolves items to graph communities and keeps ≥1 per community, falling back to bigram Kneedle when unavailable
+- **Fuzzy cross-turn dedup**: MinHash-based near-identical block detection via `graphify._minhash` (character 3-shingles, Jaccard threshold 0.85), with manual Jaccard computation since Graphify's `MinHash` has no `jaccard()` method
 
 ### Platform Integration
 
@@ -131,10 +173,13 @@ Compression is aggressive on noise, conservative on signal:
 - Short outputs (< 200 characters) are **never** modified
 - Compression is only applied if the gain exceeds 10%
 - All errors, stack traces, and actionable information are **fully preserved**
+- High-entropy content (tokens, secrets, hashes) is detected and **preserved** during truncation
+- Stack traces keep app-code frames; only runtime/library frames are collapsed
 - Source code files (`cat *.py`, `cat *.ts`, ...) pass through **unchanged** — the model needs exact content
 - Secrets in `.env` files are automatically **redacted** before reaching the model
 - Only "noise" is removed: progress bars, passing tests, installation logs, ANSI codes, platform lines
-- 853 tests including 49 precision-specific tests that verify every critical piece of data survives compression
+- Cross-turn dedup replaces verbatim repeats with pointers, **never** discarding unique content
+- 1065 tests including 49 precision-specific tests that verify every critical piece of data survives compression
 
 ## Installation
 
@@ -175,6 +220,14 @@ it instructs Kilo to query an existing `graphify-out/graph.json` before broadly
 searching or reading the repository, then to update the graph after completed code
 changes. This complements terminal-output compression by reducing repository
 context sent to the model.
+
+Token-Saver also uses the Graphify graph directly for **graph-aware compression**
+when `graphify-out/graph.json` is present: high-centrality files are prioritized
+in error output, identifiers are resolved to graph nodes for line ranking, and
+cross-turn dedup uses MinHash fuzzy matching. See
+[`docs/processors/graphify_integration.md`](docs/processors/graphify_integration.md)
+for details. This integration is fully optional and fails open when Graphify or
+its dependencies are unavailable.
 
 Graphify itself must be installed separately:
 
@@ -371,7 +424,7 @@ processor is in [`docs/processors/`](docs/processors/).
 | 34 | **File Listing** | 50 | ls, find, tree, exa, eza, rsync | [file_listing.md](docs/processors/file_listing.md) |
 | 35 | **File Content** | 51 | cat, head, tail, less, more, bat, sed -n, awk (extension-aware) | [file_content.md](docs/processors/file_content.md) |
 | 36 | **File Content** | 51 | cat, head, tail, bat, less, more (content-aware: code, config, log, CSV) | [file_content.md](docs/processors/file_content.md) |
-| 45 | **Generic** | 999 | Any command (fallback: ANSI strip, dedup, truncation) | [generic.md](docs/processors/generic.md) |
+| 48 | **Generic** | 999 | Any command (fallback: ANSI strip, dedup, truncation, headroom pipeline) | [generic.md](docs/processors/generic.md) |
 
 ## Configuration
 
@@ -459,12 +512,13 @@ Project settings are merged with global settings. Token-Saver walks up parent di
 | `db_prune_days` | 90 | Stats retention in days |
 | `user_processors_dir` | `~/.token-saver/processors/` | Directory for custom processors |
 | `disabled_processors` | `[]` | List of processor names to disable (env: comma-separated) |
+| `cross_turn_dedup` | true | Enable cross-turn verbatim dedup (folds repeated output across turns) |
 | `max_chain_depth` | 3 | Maximum processor chain depth |
 | `debug` | false | Enable debug logging |
 
 ## Custom Processors
 
-You can extend Token-Saver with your own processors for commands not covered by the built-in 45.
+You can extend Token-Saver with your own processors for commands not covered by the built-in 48.
 
 1. Create a Python file with a class inheriting from `src.processors.base.Processor`
 2. Implement `can_handle()`, `process()`, `name`, and set `priority`
@@ -489,8 +543,9 @@ Token-Saver records every compression in a local SQLite database:
 
 ### Tables
 
-- **savings**: each individual compression (timestamp, command, processor, sizes, platform)
+- **savings**: each individual compression (timestamp, command, processor, sizes, platform) — includes `cross_turn_dedup` rows for cross-turn fold savings
 - **sessions**: aggregated totals per session (first/last activity, total original/compressed, command count)
+- **dedup_corpus**: cross-turn dedup corpus (session-grouped compressed text blocks, ordered by ordinal) — persisted across processes via SQLite
 
 ### Automatic Stats
 
@@ -531,6 +586,8 @@ Lifetime
   Original tokens:      461.0k tokens
   Compressed tokens:    147.3k tokens
   Saved:                307.2k tokens (67.3%)
+
+Cross-turn folds:       18 (8.4k tokens saved)
 
 Top Processors
 ----------------------------------------
@@ -595,10 +652,18 @@ token-saver/
 │   ├── stats.py                     # Stats display
 │   ├── tracker.py                   # SQLite tracking
 │   ├── version_check.py             # GitHub update check
-│   └── processors/                  # 45 auto-discovered processors
+│   └── processors/                  # 48 auto-discovered processors
 │       ├── __init__.py
 │       ├── base.py                  # Abstract Processor class
-│       ├── utils.py                 # Shared utilities (diff compression)
+│       ├── utils.py                 # Shared utilities (diff + JSON compression)
+│       ├── _signals/                # Headroom signal utilities (not auto-discovered)
+│       │   ├── __init__.py
+│       │   ├── error_detection.py   # Centralized keyword detection + scoring
+│       │   ├── entropy.py           # Shannon entropy + sticky line detection
+│       │   ├── adaptive_sizer.py    # Kneedle algorithm + simhash clustering
+│       │   ├── json_mask.py         # Hand-rolled JSON tokenizer
+│       │   ├── cross_turn.py        # Cross-turn verbatim + fuzzy dedup
+│       │   └── graphify_context.py  # Lazy graphify graph integration
 │       ├── package_list.py          # pip list/freeze, npm ls, conda list
 │       ├── git.py                   # git status/diff/log/show/blame/push/pull
 │       ├── test_output.py           # pytest/jest/cargo/go/dotnet/swift/mix test
@@ -619,7 +684,7 @@ token-saver/
 │       ├── syslog.py                # journalctl/dmesg
 │       ├── file_listing.py          # ls/find/tree/exa/eza/rsync
 │       ├── file_content.py          # cat/bat (content-aware compression)
-│       └── generic.py               # Universal fallback
+│       └── generic.py               # Universal fallback (headroom pipeline)
 ├── docs/
 │   └── processors/                  # Per-processor documentation
 │       ├── ansible.md
@@ -633,6 +698,8 @@ token-saver/
 │       ├── generic.md
 │       ├── gh.md
 │       ├── git.md
+│       ├── graphify_integration.md   # Graphify-aware compression guide
+│       ├── headroom_techniques.md    # Headroom compression techniques guide
 │       ├── helm.md
 │       ├── kubectl.md
 │       ├── lint_output.md
@@ -674,19 +741,24 @@ token-saver/
 python3 -m pytest tests/ -v
 ```
 
-853 tests covering:
+1065 tests covering:
 
 - **test_engine.py** (46 tests): compression thresholds, processor priority, ANSI cleanup, generic fallback, hook pattern coverage for 85+ commands
 - **test_processors.py** (432 tests): each processor with nominal and edge cases, chained command routing, all subcommands (blame, inspect, stats, compose, apply/delete, init/output/state, fd, exa, httpie, dotnet/swift/mix test, shellcheck/hadolint/biome, traceback truncation, ansible, helm, syslog, parameterized tests, coverage, docker compose logs, tsc typecheck, .env redaction, minified files, search directory grouping, git lockfiles/stat grouping)
 - **test_hooks.py** (174 tests): matching patterns for all supported commands, exclusions (pipes, sudo, editors, redirections, remote rsync), subprocess integration, global options (git, docker, kubectl), chained commands (shared shell state, `&&` short-circuit, `;` continue), safe trailing pipes
 - **test_precision.py** (49 tests): verification that every critical piece of data survives compression (filenames, hashes, error messages, stack traces, line numbers, rule IDs, diff changes, warning types, secret redaction, unhealthy pods, terraform changes, unmet dependencies)
 - **test_core.py** (11 tests): shared compression core (decision, pass-through-on-error, audit logging) and the platform hook end-to-end
-- **test_tracker.py** (26 tests): CRUD, concurrency (4 threads), corruption recovery, session tracking, stats CLI
+- **test_tracker.py** (26 tests): CRUD, concurrency (4 threads), corruption recovery, session tracking, stats CLI, cross-turn corpus, dedup stats
 - **test_config.py** (19 tests): defaults, env overrides, invalid values
 - **test_version_check.py** (18 tests): version parsing, comparison, fail-open on errors
 - **test_cli.py** (23 tests): version/stats/help/explain subcommands, bin script execution
 - **test_user_processors.py** (7 tests): custom processor discovery and loading from `~/.token-saver/processors/`
 - **test_installers.py** (48 tests): version stamping, legacy migration, CLI install/uninstall
+- **test_signals_error.py** (37 tests): error keyword sets, zero-result scrubbing, strong error indicators, line scoring, graph-aware line ranking
+- **test_signals_entropy.py** (20 tests): Shannon entropy computation, high-entropy span detection, sticky line indices
+- **test_signals_sizer.py** (39 tests): CJK detection, simhash, Hamming distance, bigram curve, Kneedle algorithm, zlib validation, adaptive keep count with profiles
+- **test_signals_cross_turn.py** (23 tests): block dedup, prefix monotonicity, pointer format, fuzzy dedup fail-open, corpus persistence
+- **test_json_mask.py** (21 tests): JSON tokenization, token preservation rules, truncated JSON handling, structure-preserving compression
 
 ## Debugging
 
@@ -713,5 +785,6 @@ token-saver version
 - Chained commands (`&&`, `;`) are supported — each segment is validated individually
 - `sudo`, `ssh`, `vim` commands are never intercepted; remote `rsync` (with host:path) is excluded but local `rsync` is compressible
 - Long diff compression truncates per-hunk, not per-file: a diff with many small hunks is not reduced
-- The generic processor only deduplicates **consecutive identical lines**, not similar lines
+- Cross-turn dedup requires a session ID (`TOKEN_SAVER_SESSION` env var or `ppid-{pid}` fallback); each Bash command spawns a fresh process so corpus state lives in SQLite, not memory
+- Graphify-aware compression requires `graphify-out/graph.json` to exist and `networkx`/`numpy`/`rapidfuzz` to be installed; when absent, output is identical to the non-graphify path
 - Antigravity CLI: the deny/reason mechanism may have side effects if other plugins use the same hook

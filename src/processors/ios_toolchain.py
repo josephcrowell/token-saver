@@ -15,6 +15,7 @@ import re
 from collections import Counter
 
 from .base import Processor
+from ._signals.adaptive_sizer import compute_keep_count
 
 # ── Output patterns ────────────────────────────────────────────────
 _POD_INSTALL_RE = re.compile(
@@ -163,7 +164,8 @@ class IOSToolchainProcessor(Processor):
                 result.append("")
         if warnings:
             result.append("Warnings:")
-            for line in warnings[:5]:
+            wcount = compute_keep_count(warnings, profile="conservative")
+            for line in warnings[:wcount]:
                 result.append(f"  {line}")
         return "\n".join(result).rstrip()
 
@@ -239,7 +241,8 @@ class IOSToolchainProcessor(Processor):
                 result.append(block)
                 result.append("")
         if warnings:
-            for line in warnings[:3]:
+            wcount = compute_keep_count(warnings, profile="conservative")
+            for line in warnings[:wcount]:
                 result.append(f"Warning: {line}")
         return "\n".join(result).rstrip()
 
@@ -366,7 +369,8 @@ class IOSToolchainProcessor(Processor):
             result.extend(f"  {e}" for e in errors[:10])
         if warnings:
             result.append(f"Warnings: {len(warnings)}")
-            for w in warnings[:3]:
+            wcount = compute_keep_count(warnings, profile="conservative")
+            for w in warnings[:wcount]:
                 result.append(f"  {w}")
         if keep:
             for i in range(min(2, len(keep))):

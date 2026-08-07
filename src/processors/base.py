@@ -30,8 +30,14 @@ class Processor(ABC):
         """Return True if this processor can handle the given command."""
 
     @abstractmethod
-    def process(self, command: str, output: str) -> str:
-        """Process and compress the output. Return compressed version."""
+    def process(self, command: str, output: str, graph_ctx=None) -> str:
+        """Process and compress the output. Return compressed version.
+        
+        Args:
+            command: The command that produced the output
+            output: The command output to compress
+            graph_ctx: Optional GraphContext for graphify-aware compression
+        """
 
     def clean(self, text: str) -> str:
         """Light cleanup pass (default: no-op). Overridden by GenericProcessor."""

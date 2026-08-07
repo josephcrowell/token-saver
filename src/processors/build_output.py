@@ -3,6 +3,7 @@
 import re
 
 from .base import Processor
+from ._signals.adaptive_sizer import compute_keep_count
 
 
 class BuildOutputProcessor(Processor):

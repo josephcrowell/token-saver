@@ -3,6 +3,7 @@
 import re
 
 from .base import Processor
+from ._signals.adaptive_sizer import compute_keep_count
 
 
 class PackageListProcessor(Processor):
@@ -117,10 +118,11 @@ class PackageListProcessor(Processor):
         result = [f"{total_deps} total dependencies:"]
         if issues:
             result.append(f"Issues ({len(issues)}):")
-            for issue in issues[:10]:
+            keep_count = compute_keep_count(issues, profile="conservative")
+            for issue in issues[:keep_count]:
                 result.append(f"  {issue}")
-            if len(issues) > 10:
-                result.append(f"  ... ({len(issues) - 10} more)")
+            if len(issues) > keep_count:
+                result.append(f"  ... ({len(issues) - keep_count} more)")
         result.append(f"Top-level ({len(top_level)}):")
         for pkg in top_level[:20]:
             result.append(f"  {pkg}")

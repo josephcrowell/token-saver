@@ -6,6 +6,7 @@ from collections import defaultdict
 
 from .. import config
 from .base import PYTHON_CMD, Processor
+from ._signals.adaptive_sizer import compute_keep_count
 
 
 class LintOutputProcessor(Processor):
@@ -115,7 +116,8 @@ class LintOutputProcessor(Processor):
             line for line in ungrouped if re.search(r"\b(error|fatal|cannot|failed)\b", line, re.I)
         ]
         if important_ungrouped:
-            result.extend(important_ungrouped[:5])
+            keep_count = compute_keep_count(important_ungrouped, profile="conservative")
+            result.extend(important_ungrouped[:keep_count])
 
         return "\n".join(result)
 

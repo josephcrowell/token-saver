@@ -27,6 +27,9 @@ def compress_json_value(value, depth=0, max_depth=4, important_key_re=None):
         important_key_re: Compiled regex — matching dict keys are preserved
             at full depth.  When *None*, no key receives special treatment.
     """
+    from ._signals.entropy import EntropyScore
+    from ._signals.adaptive_sizer import compute_keep_count
+    
     if depth >= max_depth:
         if isinstance(value, dict):
             return f"{{... {len(value)} keys}}"
@@ -52,16 +55,45 @@ def compress_json_value(value, depth=0, max_depth=4, important_key_re=None):
         # Don't increment depth for list traversal
         if len(value) <= 5:
             return [compress_json_value(item, depth, max_depth, important_key_re) for item in value]
+        
+        # Use adaptive sizing for list item count (aggressive profile)
+        try:
+            # Convert items to strings for adaptive sizing
+            item_strings = [str(item) for item in value]
+            keep_count = compute_keep_count(item_strings, profile="aggressive")
+            keep_count = max(3, min(keep_count, len(value)))  # Keep at least 3, at most all
+        except Exception:
+            # Fallback to original behavior if adaptive sizing fails
+            keep_count = 3
+        
         compressed = [
-            compress_json_value(item, depth, max_depth, important_key_re) for item in value[:3]
+            compress_json_value(item, depth, max_depth, important_key_re) 
+            for item in value[:keep_count]
         ]
-        compressed.append(f"... ({len(value) - 3} more items)")
+        compressed.append(f"... ({len(value) - keep_count} more items)")
         return compressed
 
     if isinstance(value, str) and len(value) > 200:
+        # Check if string is high-entropy (likely contains important data)
+        try:
+            # For spaceless strings, use entropy detection
+            spaceless = value.replace(" ", "").replace("\t", "").replace("\n", "")
+            if len(spaceless) > SECRET_ENTROPY_MIN_LENGTH:
+                scorer = EntropyScore(spaceless, threshold=0.85)
+                if scorer.is_high_entropy:
+                    # Preserve high-entropy strings (likely tokens/IDs)
+                    return value[:197] + "..." if len(value) > 200 else value
+        except Exception:
+            # Fallback to simple truncation on any error
+            pass
+        
         return value[:197] + "..."
 
     return value
+
+
+# Constants for entropy detection
+SECRET_ENTROPY_MIN_LENGTH = 20
 
 
 def compress_diff(lines, max_hunk, max_context):

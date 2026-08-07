@@ -53,7 +53,7 @@ class CompressionEngine:
             "compressed_len": compressed_len,
         }
 
-    def compress(self, command: str, output: str) -> tuple[str, str, bool]:
+    def compress(self, command: str, output: str, graph_ctx=None) -> tuple[str, str, bool]:
         """Compress output for a given command.
 
         Returns (compressed_output, processor_name, was_compressed).
@@ -70,7 +70,17 @@ class CompressionEngine:
 
         for processor in self.processors:
             if processor.can_handle(command):
-                compressed = processor.process(command, output)
+                # Check if processor supports graph_ctx parameter
+                try:
+                    import inspect
+                    sig = inspect.signature(processor.process)
+                    if 'graph_ctx' in sig.parameters:
+                        compressed = processor.process(command, output, graph_ctx=graph_ctx)
+                    else:
+                        compressed = processor.process(command, output)
+                except (ImportError, TypeError):
+                    # Fallback for any inspection issues
+                    compressed = processor.process(command, output)
 
                 # If the processor returned output exactly unchanged, it
                 # explicitly chose not to compress (e.g. source code files).
@@ -96,6 +106,7 @@ class CompressionEngine:
                             continue
                         secondary = self._by_name[chain_name]
                         visited.add(chain_name)
+                        # Chain without graph_ctx to avoid complexity
                         chained = secondary.process(command, compressed)
                         if chained is not compressed and chained != compressed:
                             compressed = chained
@@ -121,7 +132,7 @@ class CompressionEngine:
                 # fallback (dedup, truncation, etc.).
                 mismatch = processor is not self._generic
                 if processor is not self._generic:
-                    generic_compressed = self._generic.process(command, output)
+                    generic_compressed = self._generic.process(command, output, graph_ctx=graph_ctx)
                     generic_compressed = self._generic.clean(generic_compressed)
                     generic_len = len(generic_compressed)
                     generic_gain = (

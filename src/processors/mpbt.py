@@ -10,6 +10,7 @@ import re
 
 from .base import Processor
 from .cpp_build import CppBuildProcessor
+from ._signals.error_detection import content_has_strong_error_indicators
 
 _TS_RE = re.compile(r"^\d{4}/\d{2}/\d{2} \d{2}:\d{2}:\d+\s+")
 
@@ -55,9 +56,15 @@ class MpbtProcessor(Processor):
         return m.group(1) if m else ""
 
     def _has_failure(self, lines: list[str]) -> bool:
+        # Dual gate: local regex catches single-keyword failures, while
+        # content_has_strong_error_indicators adds false-positive resistance
+        # for the common multi-indicator case.
+        text = "\n".join(lines)
+        if content_has_strong_error_indicators(text):
+            return True
         return any(_FAILURE_RE.search(line) for line in lines)
 
-    def process(self, command: str, output: str) -> str:
+    def process(self, command: str, output: str, graph_ctx=None) -> str:
         if not output or not output.strip():
             return output
         lines = [self._strip_ts(line) for line in output.splitlines()]

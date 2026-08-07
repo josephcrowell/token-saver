@@ -131,6 +131,14 @@ class SavingsTracker:
                         query_tokens INTEGER NOT NULL,
                         saved_tokens INTEGER NOT NULL
                     );
+                    CREATE TABLE IF NOT EXISTS dedup_corpus (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        session_id TEXT NOT NULL,
+                        ordinal INTEGER NOT NULL,
+                        compressed_text TEXT NOT NULL,
+                        timestamp REAL NOT NULL,
+                        UNIQUE(session_id, ordinal)
+                    );
                     CREATE INDEX IF NOT EXISTS idx_savings_session ON savings(session_id);
                     CREATE INDEX IF NOT EXISTS idx_savings_timestamp ON savings(timestamp);
                     CREATE INDEX IF NOT EXISTS idx_mismatches_ts ON mismatches(timestamp);
@@ -138,6 +146,7 @@ class SavingsTracker:
                         ON graphify_savings(
                             session_id, project, question, corpus_tokens, query_tokens
                         );
+                    CREATE INDEX IF NOT EXISTS idx_dedup_corpus_session ON dedup_corpus(session_id, ordinal);
                 """)
             except sqlite3.DatabaseError:
                 # Corrupted DB — recreate (drop WAL/SHM sidecars too)
@@ -183,6 +192,14 @@ class SavingsTracker:
                         query_tokens INTEGER NOT NULL,
                         saved_tokens INTEGER NOT NULL
                     );
+                    CREATE TABLE dedup_corpus (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        session_id TEXT NOT NULL,
+                        ordinal INTEGER NOT NULL,
+                        compressed_text TEXT NOT NULL,
+                        timestamp REAL NOT NULL,
+                        UNIQUE(session_id, ordinal)
+                    );
                 """)
 
     def _maybe_prune(self):
@@ -193,6 +210,7 @@ class SavingsTracker:
                 self.conn.execute("DELETE FROM savings WHERE timestamp < ?", (cutoff,))
                 self.conn.execute("DELETE FROM sessions WHERE last_seen < ?", (cutoff,))
                 self.conn.execute("DELETE FROM mismatches WHERE timestamp < ?", (cutoff,))
+                self.conn.execute("DELETE FROM dedup_corpus WHERE timestamp < ?", (cutoff,))
                 self.conn.commit()
         except sqlite3.Error:
             pass
@@ -515,10 +533,112 @@ class SavingsTracker:
                 f"{self._format_tokens(saved_tokens)} saved ({session['ratio']}%)"
             )
 
+        # Cross-turn dedup stats
+        cross_turn = self.get_cross_turn_stats()
+        if cross_turn["lifetime"]["folds"] > 0:
+            ct = cross_turn["lifetime"]
+            parts.append(
+                f"Cross-turn folds: {ct['folds']} "
+                f"({self._format_tokens(self._chars_to_tokens(ct['chars_saved']))} saved)"
+            )
+
         if lifetime["commands"] == 0 and graphify["lifetime"]["queries"] == 0:
             parts.append("Ready. No compressions recorded yet.")
 
         return " | ".join(parts)
+
+    def append_corpus(self, ordinal: int, text: str) -> None:
+        """Append a compressed text block to the cross-turn dedup corpus.
+
+        Uses INSERT OR REPLACE so re-appending the same ordinal is idempotent.
+        Best effort — failures are logged and suppressed.
+        """
+        now = time.time()
+        with self._lock:
+            try:
+                self.conn.execute(
+                    "INSERT OR REPLACE INTO dedup_corpus "
+                    "(session_id, ordinal, compressed_text, timestamp) "
+                    "VALUES (?, ?, ?, ?)",
+                    (self.session_id, ordinal, text, now),
+                )
+                self.conn.commit()
+            except sqlite3.Error:
+                with contextlib.suppress(sqlite3.Error):
+                    self.conn.rollback()
+
+    def get_corpus(self, limit: int = 50) -> list[tuple[int, str]]:
+        """Retrieve recent corpus blocks for this session.
+
+        Returns (ordinal, text) pairs ordered by ordinal DESC, limited.
+        """
+        with self._lock:
+            try:
+                rows = self.conn.execute(
+                    "SELECT ordinal, compressed_text FROM dedup_corpus "
+                    "WHERE session_id = ? ORDER BY ordinal DESC LIMIT ?",
+                    (self.session_id, limit),
+                ).fetchall()
+            except sqlite3.Error:
+                return []
+        return [(r["ordinal"], r["compressed_text"]) for r in rows]
+
+    def next_ordinal(self) -> int:
+        """Return the next ordinal for this session (max + 1)."""
+        with self._lock:
+            try:
+                row = self.conn.execute(
+                    "SELECT COALESCE(MAX(ordinal), 0) + 1 AS next "
+                    "FROM dedup_corpus WHERE session_id = ?",
+                    (self.session_id,),
+                ).fetchone()
+                return row["next"] if row else 1
+            except sqlite3.Error:
+                return 1
+
+    def prune_corpus(self, limit: int = 50) -> None:
+        """Prune old corpus entries, keeping only the most recent `limit`."""
+        with self._lock:
+            try:
+                self.conn.execute(
+                    "DELETE FROM dedup_corpus WHERE session_id = ? "
+                    "AND ordinal < (SELECT COALESCE(MAX(ordinal), 0) - ? "
+                    "FROM dedup_corpus WHERE session_id = ?)",
+                    (self.session_id, limit, self.session_id),
+                )
+                self.conn.commit()
+            except sqlite3.Error:
+                with contextlib.suppress(sqlite3.Error):
+                    self.conn.rollback()
+
+    def get_cross_turn_stats(self, session_id: str | None = None) -> dict:
+        """Return cross-turn dedup savings for a session and lifetime.
+
+        Cross-turn savings are stored in the ``savings`` table with
+        ``processor='cross_turn_dedup'``.
+        """
+        sid = session_id or self.session_id
+
+        def aggregate(where: str = "", params: tuple = ()) -> dict:
+            row = self.conn.execute(
+                f"""SELECT COUNT(*) AS folds,
+                           COALESCE(SUM(original_size), 0) AS original,
+                           COALESCE(SUM(compressed_size), 0) AS compressed,
+                           COALESCE(SUM(original_size - compressed_size), 0) AS saved
+                    FROM savings
+                    WHERE processor = 'cross_turn_dedup' {where}""",  # noqa: S608
+                params,
+            ).fetchone()
+            return {
+                "folds": row["folds"],
+                "chars_saved": row["saved"],
+            }
+
+        with self._lock:
+            return {
+                "session": aggregate("AND session_id = ?", (sid,)),
+                "lifetime": aggregate(),
+            }
 
     def close(self):
         with self._lock, contextlib.suppress(sqlite3.Error):

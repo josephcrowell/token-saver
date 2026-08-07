@@ -64,15 +64,43 @@ def should_compress(command: str) -> bool:
 
 
 def compress(
-    command: str, output: str, *, engine: CompressionEngine | None = None
+    command: str, output: str, *, engine: CompressionEngine | None = None, graph_ctx=None,
+    cross_turn: bool = True,
 ) -> CompressResult:
-    """Compress ``output`` for ``command``; never raises (passes through on error)."""
+    """Compress ``output`` for ``command``; never raises (passes through on error).
+
+    Args:
+        command: The command that produced the output
+        output: The command output to compress
+        engine: Optional pre-configured engine instance
+        graph_ctx: Optional GraphContext for graphify-aware compression.
+            If None, auto-detects from project root.
+        cross_turn: Whether to apply cross-turn verbatim dedup (default True)
+    """
     engine = engine or CompressionEngine()
+
+    # Auto-detect graph context if not provided
+    if graph_ctx is None:
+        try:
+            from .processors._signals.graphify_context import create_graph_context  # noqa: PLC0415
+
+            graph_ctx = create_graph_context()
+        except Exception:
+            graph_ctx = None
+
     try:
-        compressed, processor_name, was_compressed = engine.compress(command, output)
+        compressed, processor_name, was_compressed = engine.compress(command, output, graph_ctx=graph_ctx)
     except Exception:
         _log.exception("Compression failed for %r — passing through", command)
         compressed, processor_name, was_compressed = output, "passthrough", False
+
+    # Cross-turn verbatim dedup (fail-open)
+    if cross_turn and was_compressed:
+        try:
+            compressed = _apply_cross_turn_dedup(command, compressed)
+        except Exception:
+            _log.debug("Cross-turn dedup failed — using pre-fold text", exc_info=True)
+
     ev = engine.last_event or {}
     return CompressResult(
         compressed=compressed,
@@ -83,6 +111,60 @@ def compress(
         original_len=len(output),
         compressed_len=len(compressed),
     )
+
+
+def _apply_cross_turn_dedup(command: str, compressed: str) -> str:
+    """Apply cross-turn verbatim dedup using the SQLite corpus.
+
+    Fail-open: on any error, returns the input unchanged.
+    """
+    from . import config as _config  # noqa: PLC0415
+
+    # Gate: skip if disabled or corpus would be too large
+    if not _config.get("cross_turn_dedup", True):
+        return compressed
+
+    from .processors._signals.cross_turn import DedupBlock, dedup_blocks  # noqa: PLC0415
+
+    tracker = SavingsTracker()
+    try:
+        # Load recent corpus
+        corpus_rows = tracker.get_corpus(limit=50)
+        if len(corpus_rows) >= 200:
+            return compressed
+
+        # Build corpus blocks (reverse to chronological order)
+        corpus_blocks = [
+            DedupBlock(text=text, turn=ordinal)
+            for ordinal, text in reversed(corpus_rows)
+        ]
+
+        # Build new block for this turn
+        next_turn = tracker.next_ordinal()
+        new_block = DedupBlock(text=compressed, turn=next_turn)
+
+        # Run dedup
+        out_blocks, stats = dedup_blocks(corpus_blocks + [new_block])
+
+        # Take the last block's text (prefix monotonicity)
+        folded = out_blocks[-1].text
+
+        # Store the folded text in corpus (what the model actually sees)
+        tracker.append_corpus(next_turn, folded)
+
+        # Record savings if we folded something
+        if stats.spans_folded > 0:
+            tracker.record_saving(
+                command=command,
+                processor="cross_turn_dedup",
+                original_size=len(compressed),
+                compressed_size=len(folded),
+                platform="cross_turn",
+            )
+
+        return folded
+    finally:
+        tracker.close()
 
 
 def audit_log(command: str, processor: str, original_len: int, compressed_len: int) -> None:
