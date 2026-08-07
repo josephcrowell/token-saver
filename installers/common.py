@@ -20,14 +20,26 @@ def _processor_files():
     Globbing instead of hardcoding keeps the install list from drifting out of
     sync with the package (the registry auto-discovers processors at runtime,
     so a missing file here means a silently-absent processor).
+
+    Also includes subpackages (e.g. _signals/) so that shared signal utilities
+    imported by processors are installed alongside them.
     """
     proc_dir = os.path.join(EXTENSION_DIR, "src", "processors")
     rels = []
+    # Top-level .py files (skip _-prefixed except __init__.py)
     for path in sorted(glob.glob(os.path.join(proc_dir, "*.py"))):
         name = os.path.basename(path)
         if name.startswith("_") and name != "__init__.py":
             continue
         rels.append(f"src/processors/{name}")
+    # Subpackages: include all .py files from subdirectories
+    for entry in sorted(os.listdir(proc_dir)):
+        sub = os.path.join(proc_dir, entry)
+        if not os.path.isdir(sub) or entry.startswith("__"):
+            continue
+        for path in sorted(glob.glob(os.path.join(sub, "*.py"))):
+            name = os.path.basename(path)
+            rels.append(f"src/processors/{entry}/{name}")
     return rels
 
 
