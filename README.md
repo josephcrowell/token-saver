@@ -10,7 +10,7 @@
 
 Token-Saver is a drop-in **context-window optimizer for AI coding assistants**. It compresses the verbose terminal output your agent reads — `git diff`, `pytest`, `npm install`, `terraform plan`, `kubectl`, `docker` — so you spend fewer tokens, stay under your LLM context limit, and get faster, cheaper, more focused responses.
 
-**39 specialized processors** understand the tools you already use — git, pytest, C/C++ compilers, CMake/Ninja, Qt/QML tooling, cargo, go, docker, kubernetes, terraform, pulumi, helm, ansible, aws, gcloud, and more. Each one knows exactly what to keep and what to discard: errors, diffs, stack traces, and actionable data stay; progress bars, passing tests, download spinners, and boilerplate go.
+**45 specialized processors** understand the tools you already use — git, pytest, C/C++ compilers, CMake/Ninja, Qt/QML tooling, Flutter / Dart, ADB, autotools, fastlane, CocoaPods, Swift Package Manager, cargo, go, docker, kubernetes, terraform, pulumi, helm, ansible, aws, gcloud, and more. Each one knows exactly what to keep and what to discard: errors, diffs, stack traces, and actionable data stay; progress bars, passing tests, download spinners, and boilerplate go.
 
 Compatible with **Kilo Code**, **Claude Code**, and **Antigravity CLI**. No extra LLM calls. Fully deterministic. One install, instant savings.
 
@@ -54,7 +54,7 @@ Token-Saver takes a different approach from LLM-based or caching solutions — s
 ```
 CLI command  -->  Specialized processor  -->  Compressed output
                         |
-                  39 processors
+                  45 processors
                   (git, test, cargo, go, build,
                    lint, package_list, python_install,
                    maven_gradle, bun, network, docker,
@@ -63,8 +63,11 @@ CLI command  -->  Specialized processor  -->  Compressed output
                    gh, db_query, cloud_cli, ansible,
                    helm, syslog, ssh, jq_yq, just, act,
                    structured_log, file_listing,
-                    file_content, C/C++ build/analysis/tests,
-                    Qt/QML tooling, generic)
+                   file_content, C/C++ build/analysis/tests,
+                   Qt/QML tooling, Flutter / Dart, ADB,
+                   CMake configure + install, autotools,
+                   iOS toolchain (fastlane, CocoaPods, SPM,
+                   xcodebuild), generic)
 ```
 
 The engine (`CompressionEngine`) maintains a priority-ordered chain of processors.
@@ -334,6 +337,12 @@ processor is in [`docs/processors/`](docs/processors/).
 | — | **C/C++ Build** | 14 | gcc/g++, clang/clang++, Ninja, Meson, CMake build, qmake, moc/uic/rcc | [cpp_qt.md](docs/processors/cpp_qt.md) |
 | — | **C++/Qt Analysis** | 17 | clang-tidy, clang-format, cppcheck, IWYU, qmllint, qmlformat | [cpp_qt.md](docs/processors/cpp_qt.md) |
 | — | **C++/Qt Tests** | 13 | CTest, GoogleTest, Catch2, Qt Test, qmltestrunner | [cpp_qt.md](docs/processors/cpp_qt.md) |
+| — | **Flutter / Dart** | 10 | flutter build/run/test/pub/analyze/doctor, dart run/test/analyze/pub | [flutter.md](docs/processors/flutter.md) |
+| — | **CMake Configure** | 11.5 | cmake -B/-S/-G/-D configuration phases | [cmake_configure.md](docs/processors/cmake_configure.md) |
+| — | **CMake Install** | 12.5 | cmake --install, make/ninja install | [cmake_install.md](docs/processors/cmake_install.md) |
+| — | **iOS Toolchain** | 16.5 | fastlane, pod install/update, swift build/test/package, xcodebuild | [ios_toolchain.md](docs/processors/ios_toolchain.md) |
+| — | **Autotools** | 18.5 | autoreconf, automake, autoconf, libtoolize, ./configure | [autotools.md](docs/processors/autotools.md) |
+| — | **ADB** | 20.5 | adb install/uninstall/logcat/pull/push, pm list packages | [adb.md](docs/processors/adb.md) |
 | 9 | **Build** | 25 | npm/yarn/pnpm build/install, cargo build, make, cmake, tsc, webpack, vite, next build, turbo, nx, bazel, sbt, mix compile, docker build | [build_output.md](docs/processors/build_output.md) |
 | 10 | **Cargo Clippy** | 26 | cargo clippy (multi-line block grouping with span/help preservation) | [cargo_clippy.md](docs/processors/cargo_clippy.md) |
 | 11 | **Lint** | 27 | eslint, ruff, flake8, pylint, clippy, mypy, prettier, biome, shellcheck, hadolint, rubocop, golangci-lint | [lint_output.md](docs/processors/lint_output.md) |
@@ -360,8 +369,9 @@ processor is in [`docs/processors/`](docs/processors/).
 | 32 | **Nix** | 48 | nix build/develop/eval/run, nix-build, nix-shell | — |
 | 33 | **mise** | 49 | mise install, use, upgrade (runtime version manager) | — |
 | 34 | **File Listing** | 50 | ls, find, tree, exa, eza, rsync | [file_listing.md](docs/processors/file_listing.md) |
-| 35 | **File Content** | 51 | cat, head, tail, bat, less, more (content-aware: code, config, log, CSV) | [file_content.md](docs/processors/file_content.md) |
-| 39 | **Generic** | 999 | Any command (fallback: ANSI strip, dedup, truncation) | [generic.md](docs/processors/generic.md) |
+| 35 | **File Content** | 51 | cat, head, tail, less, more, bat, sed -n, awk (extension-aware) | [file_content.md](docs/processors/file_content.md) |
+| 36 | **File Content** | 51 | cat, head, tail, bat, less, more (content-aware: code, config, log, CSV) | [file_content.md](docs/processors/file_content.md) |
+| 45 | **Generic** | 999 | Any command (fallback: ANSI strip, dedup, truncation) | [generic.md](docs/processors/generic.md) |
 
 ## Configuration
 
@@ -454,7 +464,7 @@ Project settings are merged with global settings. Token-Saver walks up parent di
 
 ## Custom Processors
 
-You can extend Token-Saver with your own processors for commands not covered by the built-in 36.
+You can extend Token-Saver with your own processors for commands not covered by the built-in 45.
 
 1. Create a Python file with a class inheriting from `src.processors.base.Processor`
 2. Implement `can_handle()`, `process()`, `name`, and set `priority`
@@ -585,7 +595,7 @@ token-saver/
 │   ├── stats.py                     # Stats display
 │   ├── tracker.py                   # SQLite tracking
 │   ├── version_check.py             # GitHub update check
-│   └── processors/                  # 36 auto-discovered processors
+│   └── processors/                  # 45 auto-discovered processors
 │       ├── __init__.py
 │       ├── base.py                  # Abstract Processor class
 │       ├── utils.py                 # Shared utilities (diff compression)

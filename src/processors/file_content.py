@@ -141,7 +141,7 @@ _LOG_ERROR_RE = re.compile(
 class FileContentProcessor(Processor):
     priority = 51
     hook_patterns = [
-        r"^(cat|head|tail|less|more|bat)\b",
+        r"^(cat|head|tail|less|more|bat|sed\s+-n|awk\b)\b",
     ]
 
     @property
@@ -149,7 +149,13 @@ class FileContentProcessor(Processor):
         return "file_content"
 
     def can_handle(self, command: str) -> bool:
-        return bool(re.match(r"\s*(?:\S*/)?(cat|head|tail|less|more|bat)\b", command))
+        if re.match(r"\s*(?:\S*/)?(cat|head|tail|less|more|bat)\b", command):
+            return True
+        # `sed -n 'A,Bp'` is used to extract specific line slices; treat it
+        # as a file-content view (the source file extension drives behavior).
+        if re.match(r"\s*(?:\S*/)?sed\s+(?:-n\s+)?['\"]", command):
+            return True
+        return bool(re.match(r"\s*(?:\S*/)?awk\b", command))
 
     def process(self, command: str, output: str) -> str:
         if not output or not output.strip():

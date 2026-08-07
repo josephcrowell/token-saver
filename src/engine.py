@@ -35,7 +35,7 @@ class CompressionEngine:
         # (O3 processor-mismatch detection). Reset on every call.
         self.last_event: dict = {}
 
-    def _set_event(
+    def _set_event(  # noqa: PLR0917
         self,
         attempted: str,
         result: str,

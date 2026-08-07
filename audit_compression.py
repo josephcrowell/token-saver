@@ -351,9 +351,11 @@ pytest_warn_lines.extend(
 for i in range(30):
     pytest_warn_lines.extend(
         [
-            f"  /usr/lib/python3.12/site-packages/somepackage/module{i % 5}.py:{100 + i}: DeprecationWarning: "
-            f"function deprecated_func_{i % 8}() is deprecated and will be removed in v{3 + i % 3}.0. "
-            f"Use new_func_{i % 8}() instead.",
+            (
+                f"  /usr/lib/python3.12/site-packages/somepackage/module{i % 5}.py:{100 + i}: DeprecationWarning: "
+                f"function deprecated_func_{i % 8}() is deprecated and will be removed in v{3 + i % 3}.0. "
+                f"Use new_func_{i % 8}() instead."
+            ),
             f"    deprecated_func_{i % 8}()",
         ]
     )

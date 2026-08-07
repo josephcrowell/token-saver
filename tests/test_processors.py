@@ -609,11 +609,15 @@ class TestTestOutputProcessor:
                 "tests/test_a.py::test3 PASSED",
                 "=" * 40 + " warnings summary " + "=" * 40,
                 "tests/test_a.py::test1",
-                "  /usr/lib/python3/site-packages/pkg/mod.py:10:"
-                " DeprecationWarning: func_a() deprecated",
+                (
+                    "  /usr/lib/python3/site-packages/pkg/mod.py:10:"
+                    " DeprecationWarning: func_a() deprecated"
+                ),
                 "tests/test_a.py::test2",
-                "  /usr/lib/python3/site-packages/pkg/mod.py:20:"
-                " DeprecationWarning: func_b() deprecated",
+                (
+                    "  /usr/lib/python3/site-packages/pkg/mod.py:20:"
+                    " DeprecationWarning: func_b() deprecated"
+                ),
                 "tests/test_a.py::test3",
                 "  /usr/lib/python3/site-packages/pkg/mod.py:30: UserWarning: check config",
                 "-- Docs: https://docs.pytest.org/en/stable/warnings.html",
@@ -2324,8 +2328,10 @@ class TestKubectlProcessor:
                 "  Type    Reason     Age   From               Message",
                 "  Normal  Scheduled  10m   default-scheduler  Successfully assigned",
                 "  Normal  Pulled     10m   kubelet            Container image pulled",
-                "  Warning BackOff    5m    kubelet"
-                "            Back-off restarting failed container",
+                (
+                    "  Warning BackOff    5m    kubelet"
+                    "            Back-off restarting failed container"
+                ),
             ]
         )
         result = self.p.process("kubectl describe pod my-pod", output)
@@ -4799,9 +4805,14 @@ class TestMpbtProcessor:
         self.p = MpbtProcessor()
 
     def test_can_handle(self):
-        assert self.p.can_handle("/home/user/go/bin/mpbt-builder -solution s.yaml -workdir _WORK_ build x")
+        assert self.p.can_handle(
+            "/home/user/go/bin/mpbt-builder -solution s.yaml -workdir _WORK_ build x"
+        )
         assert self.p.can_handle("./build-all")
-        assert self.p.can_handle("rm -rf _WORK_/build/x && /home/user/go/bin/mpbt-builder -solution s build x")
+        assert self.p.can_handle(
+            "rm -rf _WORK_/build/x && "
+            "/home/user/go/bin/mpbt-builder -solution s build x"
+        )
         assert not self.p.can_handle("ninja -C build")
         assert not self.p.can_handle("cmake --build build")
 
@@ -4878,9 +4889,13 @@ class TestCmakeInstallProcessor:
 
     def test_groups_install_lines_by_directory(self):
         lines = [
-            f"-- Installing: /usr/share/locale/lang{i}/LC_MESSAGES/pkg.mo" for i in range(120)
+            f"-- Installing: /usr/share/locale/lang{i}/LC_MESSAGES/pkg.mo"
+            for i in range(120)
         ]
-        lines += [f"-- Installing: /usr/lib/python3.14/site-packages/PySide6/mod{i}.so" for i in range(40)]
+        lines += [
+            f"-- Installing: /usr/lib/python3.14/site-packages/PySide6/mod{i}.so"
+            for i in range(40)
+        ]
         lines += [
             '-- Set non-toolchain portion of runtime path of "/usr/lib/x.so" to "$ORIGIN"',
             "-- Up-to-date: /usr/include/pkg/header.h",
@@ -4950,11 +4965,20 @@ class TestGraphifyProcessor:
             for i in range(1, 6)
         ]
         lines += [
-            '  warning: 103 .json file(s) contributed nothing to the graph because a dependency is missing: tree-sitter-json not installed. (#1745)',
-            '  warning: 60 .h file(s) contributed nothing to the graph because a dependency is missing: tree_sitter_cpp not installed. (#1745)',
+            (
+                "  warning: 103 .json file(s) contributed nothing to the graph "
+                "because a dependency is missing: tree-sitter-json not installed. (#1745)"
+            ),
+            (
+                "  warning: 60 .h file(s) contributed nothing to the graph "
+                "because a dependency is missing: tree_sitter_cpp not installed. (#1745)"
+            ),
             '[graphify] backed up curated graph (4 files) -> 2026-08-02/',
             '[graphify watch] Rebuilt: 34 nodes, 23 edges, 11 communities',
-            'Code graph updated. For doc/paper/image changes run /graphify --update in your AI assistant.',
+            (
+                "Code graph updated. For doc/paper/image changes "
+                "run /graphify --update in your AI assistant."
+            ),
         ]
         result = self.p.process("graphify update .", "\n".join(lines))
         assert "Re-extracting code files" in result
@@ -4975,7 +4999,10 @@ class TestCppTestCtestVerboseCompression:
 
     def test_ctest_qttest_failure_drops_verbose_pass_lines(self):
         lines = ["Test project /tmp/kilo/tests"]
-        lines += [f"  {i}/2 Test  #{i}: t{i} ...........................   Passed 0.0{i} sec" for i in (1, 2)]
+        lines += [
+            f"  {i}/2 Test  #{i}: t{i} ...........................   Passed 0.0{i} sec"
+            for i in (1, 2)
+        ]
         lines += [
             " 1/2 Test  #1: t1 ................................   Passed 0.01 sec",
             " 2/2 Test  #2: t2 ...............................***Failed 0.31 sec",
@@ -4994,7 +5021,8 @@ class TestCppTestCtestVerboseCompression:
         ]
         result = self.p.process("ctest --test-dir /tmp/kilo/tests", "\n".join(lines))
         assert "FAIL!  : T2::test_d()" in result
-        assert "Actual" in result and "size.width()" in result
+        assert "Actual" in result
+        assert "size.width()" in result
         assert "Expected" in result
         assert "Loc: [/tmp/t2.cpp(88)]" in result
         assert "100%" not in result  # PASS line noise gone

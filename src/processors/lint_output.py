@@ -1,4 +1,5 @@
-"""Lint output processor: eslint, ruff, flake8, pylint, clippy, rubocop, shellcheck, hadolint."""
+"""Lint output processor: eslint, ruff, flake8, pylint, clippy, rubocop,
+shellcheck, hadolint, node --check."""
 
 import re
 from collections import defaultdict
@@ -14,6 +15,7 @@ class LintOutputProcessor(Processor):
         rf"^{PYTHON_CMD}\s+-m\s+(flake8|pylint|ruff|mypy)\b",
         r"^(mypy|prettier\s+--check|shellcheck|hadolint|tflint|ktlint|swiftlint)\b",
         r"^(oxlint|deno\s+lint)\b",
+        r"^(node(?:\s+--check|-c)|nodejs\s+--check)\b",
         r"^(npx\s+(eslint|prettier|stylelint|biome)\b|poetry\s+run\s+(flake8|pylint|ruff|mypy)\b|uv\s+run\s+(flake8|pylint|ruff|mypy|ruff\s+check)\b|bundle\s+exec\s+rubocop\b)",
     ]
 
@@ -22,6 +24,8 @@ class LintOutputProcessor(Processor):
         return "lint"
 
     def can_handle(self, command: str) -> bool:
+        if re.search(r"\bnode\s+(?:-c|--check)\b", command):
+            return True
         return bool(
             re.search(
                 r"\b(eslint|ruff(\s+check)?|flake8|pylint|clippy|rubocop|"
@@ -40,6 +44,9 @@ class LintOutputProcessor(Processor):
     def process(self, command: str, output: str) -> str:
         if not output or not output.strip():
             return output
+
+        if re.search(r"\bnode\s+(?:-c|--check)\b", command):
+            return self._process_node_check(output)
 
         lines = output.splitlines()
 
@@ -185,3 +192,18 @@ class LintOutputProcessor(Processor):
             return m.group(3), m.group(1)
 
         return None
+
+    def _process_node_check(self, output: str) -> str:
+        """Handle `node --check file.js` and `node -c file.js`.
+
+        On success: silent. On failure: `file:line` and a parse-error
+        block.  We preserve every line because Node syntax errors are short
+        and need full context.
+        """
+        stripped = output.strip()
+        if not stripped:
+            return "node --check: OK"
+        # Successful run prints nothing — collapse to a single confirmation.
+        if not re.search(r"\b(?:SyntaxError|Error|error)\b", stripped):
+            return "node --check: OK"
+        return output

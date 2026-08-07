@@ -188,7 +188,7 @@ def group_files_by_dir(lines, max_files):
     return result
 
 
-def compress_log_lines(
+def compress_log_lines(  # noqa: PLR0917
     lines: list[str],
     keep_head: int = 10,
     keep_tail: int = 20,

@@ -109,15 +109,19 @@ EXCLUDED_PATTERNS = [
     r"(?:^|\s)token[-_]saver\s",  # avoid wrapping token-saver CLI itself
     # Recursion guard: our rewrite is `python3 <…>wrap.py '<cmd>'`.  Match
     # wrap.py only in script-execution position so `cat wrap.py` stays wrappable.
-    r"(?:^|\s)(?:\S*/)?(?:python\d?(?:\.\d+)*|node|ruby|sh|bash|zsh|perl)\s+"
-    r"(?:-\S+\s+)*\S*wrap\.py\b",
+    (
+        r"(?:^|\s)(?:\S*/)?(?:python\d?(?:\.\d+)*|node|ruby|sh|bash|zsh|perl)\s+"
+        r"(?:-\S+\s+)*\S*wrap\.py\b"
+    ),
     r"^\s*\.?\S*/?wrap\.py\b",
     r"<\(",  # process substitution
     r"^\s*sudo\b",  # never wrap sudo
     r"^\s*env\s+\S+=",  # env VAR=val prefix — too complex to wrap
     # Interactive-flag REPLs even with script args (e.g. `python -i script.py`).
-    r"^\s*(python\d?(?:\.\d+)*|ipython|node|ruby|perl|ghci|deno|php|lua|R|bash|sh|zsh)"
-    r"\s+(?:-\S*i\S*|--interactive)(\s|$)",
+    (
+        r"^\s*(python\d?(?:\.\d+)*|ipython|node|ruby|perl|ghci|deno|php|lua|R|bash|sh|zsh)"
+        r"\s+(?:-\S*i\S*|--interactive)(\s|$)"
+    ),
     *_STREAMING_EXCLUDED_PATTERNS,
 ]
 
@@ -209,16 +213,22 @@ _SEGMENT_EXCLUDED_PATTERNS = [
     r"^\s*rsync\b.*\S+:\S+",  # only exclude remote rsync (host:path)
     r"^\s*env\s+\S+=",
     r"(?:^|\s)token[-_]saver\s",
-    r"(?:^|\s)(?:\S*/)?(?:python\d?(?:\.\d+)*|node|ruby|sh|bash|zsh|perl)\s+"
-    r"(?:-\S+\s+)*\S*wrap\.py\b",
+    (
+        r"(?:^|\s)(?:\S*/)?(?:python\d?(?:\.\d+)*|node|ruby|sh|bash|zsh|perl)\s+"
+        r"(?:-\S+\s+)*\S*wrap\.py\b"
+    ),
     r"^\s*\.?\S*/?wrap\.py\b",
     # Bare interactive REPL launchers: would hang waiting for stdin.
     # Only matches when there are no arguments (REPL mode).
-    r"^\s*(python\d?(?:\.\d+)*|ipython|node|bash|sh|zsh|ruby|irb|pry|gdb|lldb"
-    r"|mongo|mongosh|redis-cli|psql|mysql|sqlite3|php|perl|lua|R)\s*$",
+    (
+        r"^\s*(python\d?(?:\.\d+)*|ipython|node|bash|sh|zsh|ruby|irb|pry|gdb|lldb"
+        r"|mongo|mongosh|redis-cli|psql|mysql|sqlite3|php|perl|lua|R)\s*$"
+    ),
     # Interactive-flag REPLs: -i drops into REPL even with other args.
-    r"^\s*(python\d?(?:\.\d+)*|ipython|node|ruby|perl|ghci|deno|php|lua|R|bash|sh|zsh)"
-    r"\s+(?:-\S*i\S*|--interactive)(\s|$)",
+    (
+        r"^\s*(python\d?(?:\.\d+)*|ipython|node|ruby|perl|ghci|deno|php|lua|R|bash|sh|zsh)"
+        r"\s+(?:-\S*i\S*|--interactive)(\s|$)"
+    ),
     *_STREAMING_EXCLUDED_PATTERNS,
 ]
 

@@ -5,13 +5,12 @@ import os
 import subprocess
 import sys
 
-
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BRIDGE = os.path.join(REPO_ROOT, "kilo", "compress.py")
 
 
 def _run_bridge(payload):
-    return subprocess.run(
+    return subprocess.run(  # noqa: S603
         [sys.executable, BRIDGE],
         input=json.dumps(payload),
         capture_output=True,
@@ -53,7 +52,7 @@ class TestKiloBridge:
         assert json.loads(result.stdout) == {"compressed": False}
 
     def test_malformed_payload_fails_open(self):
-        result = subprocess.run(
+        result = subprocess.run(  # noqa: S603
             [sys.executable, BRIDGE],
             input="not-json",
             capture_output=True,

@@ -212,7 +212,7 @@ class TestProcessorRegistry:
     def test_discover_processors_finds_all(self):
         """Auto-discovery should find all built-in processors."""
         processors = discover_processors()
-        assert len(processors) == 43
+        assert len(processors) == 48
 
     def test_discover_processors_sorted_by_priority(self):
         """Processors must be returned in ascending priority order."""
@@ -242,13 +242,19 @@ class TestProcessorRegistry:
         """Verify the expected processor priority assignments."""
         processors = discover_processors()
         name_to_priority = {p.name: p.priority for p in processors}
+        assert name_to_priority["flutter"] == 10
+        assert name_to_priority["cmake_configure"] == 11.5
+        assert name_to_priority["cmake_install"] == 12.5
         assert name_to_priority["cpp_test"] == 13
         assert name_to_priority["cpp_build"] == 14
         assert name_to_priority["package_list"] == 15
+        assert name_to_priority["ios_toolchain"] == 16.5
         assert name_to_priority["cpp_analysis"] == 17
         assert name_to_priority["just"] == 18
+        assert name_to_priority["autotools"] == 18.5
         assert name_to_priority["act"] == 19
         assert name_to_priority["git"] == 20
+        assert name_to_priority["adb"] == 20.5
         assert name_to_priority["test"] == 21
         assert name_to_priority["cargo"] == 22
         assert name_to_priority["go"] == 23

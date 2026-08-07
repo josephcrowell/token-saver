@@ -50,8 +50,10 @@ def format_summary(summary: dict) -> str:
     """Render :func:`summarize` output as an indented text block."""
     lines = [
         "Removed breakdown:",
-        f"  Lines:  {summary['original_lines']:,} -> {summary['compressed_lines']:,} "
-        f"({summary['lines_removed']:,} removed, {summary['lines_added']:,} added)",
+        (
+            f"  Lines:  {summary['original_lines']:,} -> {summary['compressed_lines']:,} "
+            f"({summary['lines_removed']:,} removed, {summary['lines_added']:,} added)"
+        ),
         f"  Chars:  {summary['chars_removed']:,} removed",
     ]
     if summary["removed_samples"]:

@@ -19,7 +19,7 @@ _ERROR_RE = re.compile(r"CMake Error|FAILED:|\berror:|cannot find|No such file")
 class CmakeInstallProcessor(Processor):
     # Must run before CppBuildProcessor (14): cpp_build claims any `ninja`
     # command, but `ninja install` output is install listing, not build noise.
-    priority = 12
+    priority = 12.5
     hook_patterns = [
         r"^(?:\w+=\S+\s+)*cmake\s+--install\b",
         r"^(?:\w+=\S+\s+)*(?:make|ninja)\s+[^\n]*\binstall\b",
