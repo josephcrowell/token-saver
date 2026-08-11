@@ -6,11 +6,13 @@
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 [![Avg Savings](docs/assets/badge-savings.svg)](docs/processors/)
 
-**Cut your AI coding costs by 60-99% on CLI output — without losing a single error message.**
+**Cut your AI coding costs by 60-99% on tool output — without losing a single error message.**
 
-Token-Saver is a drop-in **context-window optimizer for AI coding assistants**. It compresses the verbose terminal output your agent reads — `git diff`, `pytest`, `npm install`, `terraform plan`, `kubectl`, `docker` — so you spend fewer tokens, stay under your LLM context limit, and get faster, cheaper, more focused responses.
+Token-Saver is a drop-in **context-window optimizer for AI coding assistants**. It compresses the verbose output your agent reads — `git diff`, `pytest`, `npm install`, `terraform plan`, `kubectl`, `docker`, file reads, search results, web fetches, and more — so you spend fewer tokens, stay under your LLM context limit, and get faster, cheaper, more focused responses.
 
 **48 specialized processors** understand the tools you already use — git, pytest, C/C++ compilers, CMake/Ninja, Qt/QML tooling, Flutter / Dart, ADB, autotools, fastlane, CocoaPods, Swift Package Manager, cargo, go, docker, kubernetes, terraform, pulumi, helm, ansible, aws, gcloud, and more. Each one knows exactly what to keep and what to discard: errors, diffs, stack traces, and actionable data stay; progress bars, passing tests, download spinners, and boilerplate go. A suite of deterministic **headroom compression techniques** — entropy-based preservation, adaptive sizing, stack-trace collapse, cross-turn dedup — runs underneath the processors, adding zero LLM calls.
+
+In **Kilo Code**, Token-Saver compresses output from **all tool types** — not just Bash commands but also `read` (file contents), `grep` (search results), `glob` (file listings), `webfetch` (web pages), `task` (subagent results), `websearch`, `codebase_search`, and `lsp` — so token savings apply across the entire workflow, not just shell output.
 
 Compatible with **Kilo Code**, **Claude Code**, and **Antigravity CLI**. No extra LLM calls. Fully deterministic. One install, instant savings. Optional **Graphify** integration adds graph-aware compression when a knowledge graph is present.
 
@@ -25,8 +27,8 @@ Compatible with **Kilo Code**, **Claude Code**, and **Antigravity CLI**. No extr
 
 ### Before & After
 
-| Command | Raw Output | Compressed | Savings |
-|---------|-----------|------------|---------|
+| Source | Raw Output | Compressed | Savings |
+|--------|-----------|------------|---------|
 | `git diff` (large refactor) | 2,270 tokens | 909 tokens | **60%** |
 | `pytest` (500 tests, 2 failures) | 6,744 tokens | 308 tokens | **95%** |
 | `npm install` (220 packages) | 3,844 tokens | 4 tokens | **99%** |
@@ -34,14 +36,17 @@ Compatible with **Kilo Code**, **Claude Code**, and **Antigravity CLI**. No extr
 | `kubectl get pods` (40 pods) | 1,393 tokens | 79 tokens | **94%** |
 | `docker compose logs` (4 services) | 3,200 tokens | 480 tokens | **85%** |
 | `helm template` (12 manifests) | 2,100 tokens | 210 tokens | **90%** |
+| Kilo `read` tool (300-line log file) | 20,378 chars | 693 chars | **97%** |
+| Kilo `grep` tool (100 matches) | 2,789 chars | 121 chars | **96%** |
+| Kilo `glob` tool (200 file paths) | 5,339 chars | 56 chars | **99%** |
 
 > Run `token-saver benchmark <command>` to measure savings on your own workloads.
 
 ## Why
 
-Every CLI command your AI assistant runs burns tokens — and most of that output is noise. A 500-line `git diff`, a `pytest` run with 200 passing tests, an `npm install` with 80 packages: the model only needs errors, modified files, and results. Everything else is wasted context and wasted money.
+Every tool call your AI assistant runs burns tokens — and most of that output is noise. A 500-line `git diff`, a `pytest` run with 200 passing tests, an `npm install` with 80 packages, a 2000-line file read, a grep with 500 matches: the model only needs errors, modified files, and results. Everything else is wasted context and wasted money.
 
-Token-Saver sits between the CLI and your AI assistant, compressing output with content-aware strategies. The model sees exactly what it needs — nothing more, nothing less. Your context window stays clean, your costs drop, and your assistant responds faster with less noise to process.
+Token-Saver sits between the tool and your AI assistant, compressing output with content-aware strategies. The model sees exactly what it needs — nothing more, nothing less. Your context window stays clean, your costs drop, and your assistant responds faster with less noise to process.
 
 ## How It Compares
 
@@ -52,28 +57,47 @@ Token-Saver takes a different approach from LLM-based or caching solutions — s
 ### Architecture
 
 ```
-CLI command  -->  Specialized processor  -->  Headroom techniques  -->  Compressed output
-                         |                          |
-                   48 processors              _signals/ package
-                   (git, test, cargo, go,     (entropy, adaptive sizer,
-                    build, lint, package_      error detection, stack
-                    list, python_install,      trace collapse, similar
-                    maven_gradle, bun,         trailing dedup, JSON
-                    network, docker,           mask, cross-turn dedup,
-                    kubectl, terraform,         graphify context)
-                    pulumi, cdktf, nix,
-                    mise, env, search,
-                    system_info, gh, db_query,
-                    cloud_cli, ansible, helm,
-                    syslog, ssh, jq_yq, just,
-                    act, structured_log,
-                    file_listing, file_content,
-                    C/C++ build/analysis/tests,
-                    Qt/QML tooling, Flutter/Dart,
-                    ADB, CMake configure+install,
-                    autotools, iOS toolchain,
-                    generic)
+Tool output   -->  Specialized processor  -->  Headroom techniques  -->  Compressed output
+(bash, read,           |                          |                     (sent to model)
+ grep, glob,      48 processors              _signals/ package
+ webfetch,        (git, test, cargo, go,     (entropy, adaptive sizer,
+ task, ...)        build, lint, package_      error detection, stack
+                   list, python_install,      trace collapse, similar
+                   maven_gradle, bun,         trailing dedup, JSON
+                   network, docker,           mask, cross-turn dedup,
+                   kubectl, terraform,         graphify context)
+                   pulumi, cdktf, nix,
+                   mise, env, search,
+                   system_info, gh, db_query,
+                   cloud_cli, ansible, helm,
+                   syslog, ssh, jq_yq, just,
+                   act, structured_log,
+                   file_listing, file_content,
+                   C/C++ build/analysis/tests,
+                   Qt/QML tooling, Flutter/Dart,
+                   ADB, CMake configure+install,
+                   autotools, iOS toolchain,
+                   generic)
 ```
+
+For **Kilo Code**, the plugin intercepts all tool types that produce meaningful
+text output. Each tool maps to a synthetic command string so the engine routes
+to the right processor:
+
+| Kilo tool | Synthetic command | Routed processor |
+|---|---|---|
+| `bash` | `input.args.command` (actual command) | matched by `can_handle()` |
+| `read` | `cat <filePath>` | `file_content` |
+| `grep` | `grep <pattern> <path>` | `search` |
+| `glob` | `find <path> -name <pattern>` | `file_listing` |
+| `webfetch` | `curl <url>` | `network` |
+| `task` | `task <description>` | `generic` |
+| `websearch` | `websearch <query>` | `generic` |
+| `codebase_search` | `codebase_search <query>` | `generic` |
+| `lsp` | `lsp <operation>` | `generic` |
+
+Tools that produce only short confirmations (`write`, `edit`, `todowrite`,
+`question`) are silently skipped — not worth compressing.
 
 The engine (`CompressionEngine`) maintains a priority-ordered chain of processors.
 The first processor that can handle the command (`can_handle()`) produces the
@@ -129,16 +153,21 @@ The platforms use the safest mechanism each plugin API provides:
 **Kilo Code** (`tool.execute.after` plugin hook):
 
 ```
-1. Kilo executes a Bash command normally
-2. The Token-Saver plugin receives the completed command and output
-3. A local Python bridge applies the matching processor
-4. The hook replaces output.output with the compressed result
-5. Kilo sends the compressed output to the model
+1. Kilo executes any tool (bash, read, grep, glob, webfetch, task, ...)
+2. The Token-Saver plugin receives the completed tool output
+3. For bash: the real command is passed to the engine for processor routing
+4. For non-bash tools: a synthetic command is built from tool+args
+   (e.g. read → "cat <filePath>", grep → "grep <pattern> <path>")
+5. A local Python bridge applies the matching processor
+6. The hook replaces output.output with the compressed result
+7. Kilo sends the compressed output to the model
 ```
 
 Kilo's post-tool hook can modify output directly, so commands are never
-re-executed. The plugin fails open: if Python or compression fails, the original
-tool output remains untouched.
+re-executed. The plugin compresses output from **all tool types**, not just
+Bash — file reads, search results, glob listings, web fetches, subagent tasks,
+and more are all compressed. The plugin fails open: if Python or compression
+fails, the original tool output remains untouched.
 
 **Claude Code** (PreToolUse hook):
 
@@ -175,7 +204,7 @@ Compression is aggressive on noise, conservative on signal:
 - All errors, stack traces, and actionable information are **fully preserved**
 - High-entropy content (tokens, secrets, hashes) is detected and **preserved** during truncation
 - Stack traces keep app-code frames; only runtime/library frames are collapsed
-- Source code files (`cat *.py`, `cat *.ts`, ...) pass through **unchanged** — the model needs exact content
+- Source code files (`cat *.py`, `cat *.ts`, Kilo `read` tool) pass through **unchanged** — the model needs exact content
 - Secrets in `.env` files are automatically **redacted** before reaching the model
 - Only "noise" is removed: progress bars, passing tests, installation logs, ANSI codes, platform lines
 - Cross-turn dedup replaces verbatim repeats with pointers, **never** discarding unique content
@@ -638,6 +667,8 @@ token-saver/
 │   ├── antigravity-plugin.json      # Antigravity plugin metadata
 │   ├── hooks.json                   # Antigravity hook definitions
 │   └── hook_aftertool.py            # AfterTool hook (Antigravity CLI)
+├── kilo/                             # Kilo Code bridge
+│   └── compress.py                   # JSON bridge (bash + non-bash tools)
 ├── bin/                             # CLI executables
 │   ├── token-saver                  # Unix CLI wrapper
 │   └── token-saver.cmd              # Windows CLI wrapper
@@ -711,8 +742,9 @@ token-saver/
 │       ├── terraform.md
 │       └── test_output.md
 ├── installers/                      # Modular installer package
-│   ├── common.py                    # Shared constants + utilities
+│   ├── common.py                    # Shared constants + utilities (incl. _signals subpackage discovery)
 │   ├── claude.py                    # Claude Code installer (native plugin registration)
+│   ├── kilo.py                      # Kilo Code installer (multi-tool plugin template)
 │   └── antigravity.py               # Antigravity CLI installer
 ├── install.py                       # Installer entry point
 ├── CLAUDE.md                        # Plugin instructions

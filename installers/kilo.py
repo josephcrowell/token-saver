@@ -1,8 +1,18 @@
 """Kilo Code installer for Token-Saver.
 
-Kilo loads JavaScript/TypeScript plugins from ``~/.config/kilo/plugins``.
-The plugin installed here uses Kilo's ``tool.execute.after`` hook to compress
-the output of completed Bash tool calls without executing the command twice.
+Kilo loads JavaScript/TypeScript plugins from two locations:
+
+1. ``~/.config/kilo/plugins`` — global config, used by the Kilo TUI/CLI.
+2. ``<workspace>/.kilo/plugins`` — workspace-level, used by the VS Code
+   extension's ``kilo serve`` backend.
+
+The VS Code extension's ``kilo serve`` process loads plugins from the
+workspace ``.kilo/plugins`` directory at startup, not from the global config
+directory.  Installing to both paths ensures compression works regardless of
+which Kilo interface is active.
+
+The plugin uses Kilo's ``tool.execute.after`` hook to compress the output of
+completed Bash tool calls without executing the command twice.
 """
 
 import json
@@ -26,6 +36,36 @@ def _config_dir():
 
 def _plugin_path():
     return os.path.join(_config_dir(), "plugins", _PLUGIN_NAME)
+
+
+def _workspace_plugin_paths():
+    """Return workspace-level ``.kilo/plugins/token-saver.js`` paths to install.
+
+    Searches for ``.kilo/plugins`` directories starting from the current working
+    directory and walking up to the filesystem root.  This matches how Kilo's
+    ``kilo serve`` backend discovers workspace plugins.
+
+    The ``KILO_WORKSPACE`` environment variable can override the search root for
+    non-interactive install scripts.
+    """
+    workspace_root = os.environ.get("KILO_WORKSPACE") or os.getcwd()
+    workspace_root = os.path.abspath(os.path.expanduser(workspace_root))
+
+    paths = []
+    current = workspace_root
+    while True:
+        kilo_dir = os.path.join(current, ".kilo")
+        if os.path.isdir(kilo_dir):
+            plugins_dir = os.path.join(kilo_dir, "plugins")
+            paths.append(os.path.join(plugins_dir, _PLUGIN_NAME))
+            # Don't walk further once we find the first .kilo directory;
+            # Kilo uses the nearest one.
+            break
+        parent = os.path.dirname(current)
+        if parent == current:
+            break
+        current = parent
+    return paths
 
 
 def _skill_dir():
@@ -58,7 +98,22 @@ def _render_plugin() -> str:
         "  \"runCommand\", \"run_command\", \"sh\",\n"
         "])\n"
         "\n"
-        "function compress(command, output, sessionID) {\n"
+        "// Tools that produce compressible text output.  Each maps to a synthetic\n"
+        "// command string so the Python engine routes to the right processor.\n"
+        "// Tools not listed here (write, edit, todowrite, question, etc.) produce\n"
+        "// only short confirmations or user input — not worth compressing.\n"
+        "const TOOL_COMMAND = {\n"
+        "  read:            (a) => `cat ${a.filePath ?? a.path ?? \"\"}`,\n"
+        "  grep:            (a) => `grep ${a.pattern ?? \"\"} ${a.path ?? a.include ?? \"\"}`,\n"
+        "  glob:            (a) => `find ${a.path ?? \".\"} -name ${a.pattern ?? \"\"}`,\n"
+        "  task:            (a) => `task ${a.description ?? a.subagent_type ?? \"\"}`,\n"
+        "  webfetch:        (a) => `curl ${a.url ?? \"\"}`,\n"
+        "  websearch:       (a) => `websearch ${a.query ?? \"\"}`,\n"
+        "  codebase_search: (a) => `codebase_search ${a.query ?? \"\"}`,\n"
+        "  lsp:             (a) => `lsp ${a.operation ?? a.command ?? \"\"}`,\n"
+        "}\n"
+        "\n"
+        "function compress(command, output, sessionID, tool) {\n"
         "  return new Promise((resolve) => {\n"
         "    const child = spawn(PYTHON, [BRIDGE], { stdio: [\"pipe\", \"pipe\", \"ignore\"] })\n"
         "    let stdout = \"\"\n"
@@ -71,7 +126,7 @@ def _render_plugin() -> str:
         "      if (code !== 0 || !stdout) return resolve(null)\n"
         "      try { resolve(JSON.parse(stdout)) } catch { resolve(null) }\n"
         "    })\n"
-        "    child.stdin.end(JSON.stringify({ command, output, session_id: sessionID }))\n"
+        "    child.stdin.end(JSON.stringify({ command, output, session_id: sessionID, tool: tool || \"\" }))\n"
         "  })\n"
         "}\n"
         "\n"
@@ -103,18 +158,29 @@ def _render_plugin() -> str:
         "      if (match) output.args.__tokenSaverGraphifyQuestion = match[2]\n"
         "    },\n"
         "    \"tool.execute.after\": async (input, output) => {\n"
-        "      if (!BASH_TOOLS.has(String(input.tool || \"\").toLowerCase())) return\n"
-        "      const command = input.args?.command\n"
-        "      if (typeof command !== \"string\" || typeof output.output !== \"string\") return\n"
-        "      const graphifyMatch = command.match(GRAPHIFY_QUERY_RE)\n"
-        "      const question = input.args?.__tokenSaverGraphifyQuestion || graphifyMatch?.[2]\n"
-        "      if (typeof question === \"string\") {\n"
-        "        await compressGraphify(\n"
-        "          input.args?.workdir || process.cwd(),\n"
-        "          question, output.output, input.sessionID,\n"
-        "        )\n"
+        "      const tool = String(input.tool || \"\")\n"
+        "      const isBash = BASH_TOOLS.has(tool.toLowerCase())\n"
+        "      // Build the command string for processor routing\n"
+        "      let command\n"
+        "      if (isBash) {\n"
+        "        command = input.args?.command\n"
+        "      } else {\n"
+        "        const builder = TOOL_COMMAND[tool]\n"
+        "        command = typeof builder === \"function\" ? builder(input.args || {}) : null\n"
         "      }\n"
-        "      const result = await compress(command, output.output, input.sessionID)\n"
+        "      if (typeof command !== \"string\" || typeof output.output !== \"string\") return\n"
+        "      // Graphify metrics only for bash commands\n"
+        "      if (isBash) {\n"
+        "        const graphifyMatch = command.match(GRAPHIFY_QUERY_RE)\n"
+        "        const question = input.args?.__tokenSaverGraphifyQuestion || graphifyMatch?.[2]\n"
+        "        if (typeof question === \"string\") {\n"
+        "          await compressGraphify(\n"
+        "            input.args?.workdir || process.cwd(),\n"
+        "            question, output.output, input.sessionID,\n"
+        "          )\n"
+        "        }\n"
+        "      }\n"
+        "      const result = await compress(command, output.output, input.sessionID, tool)\n"
         "      if (result?.compressed === true && typeof result.output === \"string\") {\n"
         "        output.output = result.output\n"
         "        output.metadata = { ...(output.metadata || {}), tokenSaver: result.stats }\n"
@@ -129,17 +195,56 @@ def _render_plugin() -> str:
 
 
 def install(use_symlink=False):
-    """Install the Kilo plugin, Python bridge, skill, and stats command."""
+    """Install the Kilo plugin, Python bridge, skill, and stats command.
+
+    Installs the plugin into both the global config directory and any
+    workspace-level ``.kilo/plugins`` directory found in the current
+    workspace tree.  The VS Code extension's ``kilo serve`` backend only
+    scans workspace-level plugins, so both paths are required.
+    """
     config_dir = _config_dir()
     plugin_path = _plugin_path()
     print(f"\n--- Kilo Code ({config_dir}) ---")
 
+    plugin_content = _render_plugin()
+
+    # 1. Global config directory (used by Kilo TUI/CLI)
     os.makedirs(os.path.dirname(plugin_path), exist_ok=True)
     if os.path.exists(plugin_path) or os.path.islink(plugin_path):
         os.remove(plugin_path)
     with open(plugin_path, "w", encoding="utf-8") as f:
-        f.write(_render_plugin())
+        f.write(plugin_content)
     print(f"  COPY {_PLUGIN_NAME} -> {plugin_path}")
+
+    # 2. Workspace-level .kilo/plugins (used by VS Code kilo serve backend)
+    workspace_paths = _workspace_plugin_paths()
+    for ws_path in workspace_paths:
+        ws_plugins_dir = os.path.dirname(ws_path)
+        os.makedirs(ws_plugins_dir, exist_ok=True)
+        if os.path.exists(ws_path) or os.path.islink(ws_path):
+            os.remove(ws_path)
+        if use_symlink:
+            os.symlink(plugin_path, ws_path)
+            print(f"  LINK {_PLUGIN_NAME} -> {ws_path}")
+        else:
+            with open(ws_path, "w", encoding="utf-8") as f:
+                f.write(plugin_content)
+            print(f"  COPY {_PLUGIN_NAME} -> {ws_path}")
+
+    if not workspace_paths:
+        # No .kilo directory found in workspace; create one so the VS Code
+        # extension picks it up on next restart.
+        workspace_root = os.environ.get("KILO_WORKSPACE") or os.getcwd()
+        ws_kilo_dir = os.path.join(workspace_root, ".kilo", "plugins")
+        ws_path = os.path.join(ws_kilo_dir, _PLUGIN_NAME)
+        os.makedirs(ws_kilo_dir, exist_ok=True)
+        if use_symlink:
+            os.symlink(plugin_path, ws_path)
+            print(f"  LINK {_PLUGIN_NAME} -> {ws_path} (created .kilo/plugins)")
+        else:
+            with open(ws_path, "w", encoding="utf-8") as f:
+                f.write(plugin_content)
+            print(f"  COPY {_PLUGIN_NAME} -> {ws_path} (created .kilo/plugins)")
 
     # Kilo assets are also kept in the core install. Symlinking these user-facing
     # entries in development mode gives immediate skill/command updates.
@@ -158,7 +263,9 @@ def install(use_symlink=False):
 def uninstall():
     """Remove Token-Saver's Kilo plugin, skill, and command."""
     print("\n--- Kilo Code ---")
-    paths = (_plugin_path(), _command_path())
+    paths = [_plugin_path()]
+    paths.extend(_workspace_plugin_paths())
+    paths.append(_command_path())
     for path in paths:
         if os.path.exists(path) or os.path.islink(path):
             os.remove(path)
