@@ -25,11 +25,34 @@ class SearchProcessor(Processor):
             return output
 
         # fd/fdfind produces file listing output -- delegate to grouping
-        if re.search(r"\b(fd|fdfind)\b", command):
+        if re.match(r"\s*(?:\S*/)?(?:fd|fdfind)\b", command):
             return self._process_fd(output)
 
         lines = output.splitlines()
         if len(lines) < 20:
+            return output
+
+        # Kilo's native grep tool renders matches as a file heading followed by
+        # indented ``Line N: ...`` entries.  Parse that format before the
+        # file:line:content parser below; otherwise the heading is counted as a
+        # match while the actual match lines become unassociated plain text and
+        # are dropped from the grouped output.
+        native = self._parse_native_matches(lines)
+        if native is not None:
+            native_by_file, notices = native
+            return "\n".join([self._format_grouped_matches(native_by_file), *notices])
+
+        # An unfamiliar native annotation or explicitly requested context must
+        # not fall back to a CLI parser that cannot associate it with its file.
+        # Returning the original also tells the engine not to run generic
+        # truncation. Prefer no savings to silently losing search evidence.
+        if any(
+            re.match(
+                r"^\s*(?:Found \d+ match(?:es)?\b|(?:\[(?:match|context)\] )?Line \d+:)",
+                line,
+            )
+            for line in lines
+        ):
             return output
 
         # Detect format: file:line:content or file:content or just file
@@ -59,7 +82,6 @@ class SearchProcessor(Processor):
         if not by_file and not plain_matches:
             return output
 
-        total_matches = sum(len(v) for v in by_file.values()) + len(plain_matches)
         total_files = len(by_file)
 
         if total_files == 0:
@@ -70,15 +92,86 @@ class SearchProcessor(Processor):
                 return "\n".join(result)
             return output
 
+        # Mixed/unknown CLI formats (e.g. paths with spaces or context lines)
+        # cannot safely be grouped. Never count unparsed lines and then omit them.
+        if plain_matches:
+            return output
+
+        return self._format_grouped_matches(by_file)
+
+    @staticmethod
+    def _parse_native_matches(
+        lines: list[str],
+    ) -> tuple[dict[str, list[str]], list[str]] | None:
+        """Parse Kilo's file-heading/``Line N:`` search output format.
+
+        Return ``None`` unless every non-empty, non-summary line belongs to a
+        recognized native-grep block or limit notice. The caller must pass
+        unrecognized native output through unchanged, not retry the CLI parser.
+        Context-labelled results are deliberately passed through in full.
+        """
+        by_file: dict[str, list[str]] = defaultdict(list)
+        current_file: str | None = None
+        saw_detail = False
+        notices: list[str] = []
+        expected_matches: int | None = None
+
+        for line in lines:
+            stripped = line.strip()
+            if not stripped:
+                continue
+            summary = re.fullmatch(
+                r"Found (\d+) match(?:es)?(?:\s+(?:in|across)\s+\d+ files?)?"
+                r"(?: (\(more matches available\)))?:?",
+                stripped,
+            )
+            if summary and current_file is None and expected_matches is None:
+                expected_matches = int(summary.group(1))
+                if summary.group(2):
+                    notices.append(summary.group(2))
+                continue
+
+            if saw_detail and re.fullmatch(
+                r"\d+ matches limit reached\. Use limit=\d+ for more, or refine pattern\.",
+                stripped,
+            ):
+                notices.append(stripped)
+                continue
+
+            detail = re.match(r"^\s+Line\s+\d+:", line)
+            if detail and current_file:
+                by_file[current_file].append(f"{current_file}:{stripped}")
+                saw_detail = True
+                continue
+
+            # Native output uses an unindented path heading ending in ':'.
+            # Do not accept whitespace here, so indented content cannot become
+            # a new file accidentally.
+            if not line[0].isspace() and stripped.endswith(":"):
+                current_file = stripped[:-1]
+                by_file.setdefault(current_file, [])
+                continue
+
+            return None
+
+        if not saw_detail or any(not matches for matches in by_file.values()):
+            return None
+        if expected_matches is not None and expected_matches != sum(map(len, by_file.values())):
+            return None
+        return by_file, notices
+
+    def _format_grouped_matches(
+        self,
+        by_file: dict[str, list[str]],
+    ) -> str:
+        """Format fully parsed file-grouped matches with explicit omissions."""
+        total_matches = sum(len(v) for v in by_file.values())
+        total_files = len(by_file)
         max_per_file = config.get("search_max_per_file")
         max_files = config.get("search_max_files")
 
         if total_files > 30:
-            return self._process_grouped_by_dir(
-                by_file,
-                total_matches,
-                total_files,
-            )
+            return self._process_grouped_by_dir(by_file, total_matches, total_files)
 
         result = [f"{total_matches} matches across {total_files} files:"]
 

@@ -2142,6 +2142,36 @@ class TestSearchProcessor:
         assert "50 matches across 10 files" in result
         assert "... (" in result  # truncated per-file
 
+    def test_preserves_native_grep_match_lines(self):
+        lines = ["Found 10 matches", "src/demo.py:"]
+        for i in range(10):
+            lines.extend([f"  Line {i + 1}: MATCH_{i + 1:02d}", ""])
+        result = self.p.process("grep MATCH src", "\n".join(lines))
+
+        assert "10 matches across 1 files" in result
+        assert "src/demo.py: (10 matches)" in result
+        for i in range(3):
+            assert f"Line {i + 1}: MATCH_{i + 1:02d}" in result
+        assert "... (7 more)" in result
+
+    def test_native_grep_preserves_special_characters(self):
+        path = "dir with spaces/[x]+$.py"
+        contents = [
+            r"needle [](){}.*+?$^\\|: café",
+            "needle with a colon: and trailing code()",
+            "needle with tabs\tand Unicode Ω",
+        ] * 7
+        lines = ["Found 21 matches in 1 file", f"{path}:"]
+        for i, content in enumerate(contents, 1):
+            lines.extend([f"  Line {i}: {content}", ""])
+
+        result = self.p.process("grep needle .", "\n".join(lines))
+
+        assert f"{path}: (21 matches)" in result
+        for content in contents[:3]:
+            assert content in result
+        assert "... (18 more)" in result
+
     def test_strips_binary_warnings(self):
         output = "\n".join(
             [
