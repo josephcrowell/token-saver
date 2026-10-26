@@ -2,12 +2,21 @@
 
 import json
 import os
+import re
 import time
+import urllib.error
 import urllib.request
 
 from src import __version__
 
-_GITHUB_API_URL = "https://api.github.com/repos/ppgranger/token-saver/releases/latest"
+# Releases and updates come from this fork, not upstream ppgranger/token-saver.
+GITHUB_REPO = "josephcrowell/token-saver"
+GITHUB_MAIN_BRANCH = "main"
+_GITHUB_API_URL = f"https://api.github.com/repos/{GITHUB_REPO}/releases/latest"
+# Fallback while the repo has no published releases: the version on main.
+_MAIN_VERSION_URL = (
+    f"https://raw.githubusercontent.com/{GITHUB_REPO}/{GITHUB_MAIN_BRANCH}/src/__init__.py"
+)
 
 # Cache the remote version lookup so the SessionStart hook doesn't hit GitHub
 # on every new session (which both adds latency and risks rate-limiting).
@@ -21,10 +30,15 @@ def _cache_path():
 
 
 def _read_cache(ttl):
-    """Return the cached latest-version string if still fresh, else None."""
+    """Return the cached latest-version string if still fresh, else None.
+
+    Entries recorded for a different repo (e.g. upstream) are ignored.
+    """
     try:
         with open(_cache_path()) as f:
             data = json.load(f)
+        if data.get("repo") != GITHUB_REPO:
+            return None
         if time.time() - float(data["checked_at"]) < ttl:
             return data["latest"]
     except (OSError, ValueError, KeyError, TypeError, json.JSONDecodeError):
@@ -38,7 +52,7 @@ def _write_cache(latest):
         path = _cache_path()
         os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as f:
-            json.dump({"latest": latest, "checked_at": time.time()}, f)
+            json.dump({"latest": latest, "checked_at": time.time(), "repo": GITHUB_REPO}, f)
     except OSError:
         pass
 
@@ -54,8 +68,22 @@ def _parse_version(version_str):
     return tuple(int(x) for x in v.split("."))
 
 
+def _fetch_main_version(timeout):
+    """Read ``__version__`` from src/__init__.py on the main branch."""
+    req = urllib.request.Request(_MAIN_VERSION_URL, headers={"User-Agent": "token-saver"})
+    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+        content = resp.read().decode()
+    match = re.search(r'__version__\s*=\s*["\']([^"\']+)["\']', content)
+    if not match:
+        raise ValueError(f"No __version__ in {GITHUB_MAIN_BRANCH} branch src/__init__.py")
+    return match.group(1)
+
+
 def _fetch_latest_version(fetch_fn=None, timeout=1):
-    """Fetch latest version string from GitHub API.
+    """Fetch latest version string from GitHub.
+
+    Uses the latest published release; if the repo has none (HTTP 404), falls
+    back to the version declared on the main branch.
 
     Args:
         fetch_fn: Override fetch function (for testing). Should return version string.
@@ -68,8 +96,13 @@ def _fetch_latest_version(fetch_fn=None, timeout=1):
         _GITHUB_API_URL,
         headers={"Accept": "application/vnd.github.v3+json", "User-Agent": "token-saver"},
     )
-    with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
-        data = json.loads(resp.read().decode())
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as resp:  # noqa: S310
+            data = json.loads(resp.read().decode())
+    except urllib.error.HTTPError as e:
+        if e.code != 404:
+            raise
+        return _fetch_main_version(timeout)
     tag = data.get("tag_name", "")
     if not tag:
         raise ValueError("No tag_name in GitHub API response")

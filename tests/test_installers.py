@@ -352,6 +352,7 @@ class TestInstallCore:
         assert os.path.isfile(os.path.join(self.tmp_dir, ".claude-plugin", "plugin.json"))
         assert os.path.isfile(os.path.join(self.tmp_dir, "hooks", "hooks.json"))
         assert os.path.isfile(os.path.join(self.tmp_dir, "scripts", "hook_pretool.py"))
+        assert os.path.isfile(os.path.join(self.tmp_dir, "scripts", "hook_posttool.py"))
         assert os.path.isfile(os.path.join(self.tmp_dir, "scripts", "wrap.py"))
         assert os.path.isfile(os.path.join(self.tmp_dir, "scripts", "__init__.py"))
         assert os.path.isfile(os.path.join(self.tmp_dir, "kilo", "compress.py"))
@@ -576,9 +577,9 @@ class TestRegisterPlugin:
             known = json.load(f)
         assert "token-saver-marketplace" in known
         entry = known["token-saver-marketplace"]
-        assert entry["source"]["source"] == "github"
-        assert entry["source"]["repo"] == "ppgranger/token-saver"
-        assert entry["source"]["ref"] == "production"
+        # A local directory source: Claude Code must never refresh this fork
+        # from the upstream GitHub repo.
+        assert entry["source"] == {"source": "directory", "path": self.tmp_marketplace}
         assert entry["installLocation"] == self.tmp_marketplace
 
     def test_registers_in_installed_plugins_v2_format(self):
@@ -863,7 +864,7 @@ class TestPluginStructure:
         # Verify structure: must have top-level "hooks" wrapper
         assert "hooks" in data
         hooks = data["hooks"]
-        assert "PreToolUse" in hooks
+        assert "PostToolUse" in hooks
         assert "SessionStart" in hooks
 
     def test_scripts_init_exists(self):

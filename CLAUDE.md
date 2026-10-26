@@ -1,15 +1,19 @@
 # Token-Saver Plugin
 
-Token-saver automatically compresses verbose CLI output to save tokens.
+Token-saver automatically compresses verbose tool output to save tokens.
 
 ## How it works
-- A PreToolUse hook intercepts Bash commands matching known patterns (git, docker, npm, terraform, kubectl, etc.)
-- The command output is piped through specialized compression processors
-- Compressed output is returned to Claude, saving tokens while preserving critical information
+- A PostToolUse hook compresses output after Bash, Read, Grep, Glob, Agent, and WebFetch
+  calls finish (the same model as the Kilo Code plugin). Commands run unmodified and once,
+  under Claude Code's normal permission rules.
+- Output is routed through specialized compression processors (git, docker, npm, cmake,
+  Qt, terraform, kubectl, etc.). Source code and config files read with Read are never
+  compressed, and ranged reads (offset/limit) are left untouched.
+- `graphify query "<question>"` Bash calls are measured automatically and reported as
+  Graphify savings in the session stats.
 
 ## Important rules
 - Never wrap `token-saver` CLI commands themselves (avoid infinite loops)
-- Never wrap interactive commands (vim, nano, ssh, etc.)
-- Never wrap commands with redirections (>) or complex pipes
-- Never wrap sudo commands
+- Shell commands with redirections (>), complex pipes, sudo, or interactive programs are
+  never compressed
 - Debug mode: set TOKEN_SAVER_DEBUG=true environment variable

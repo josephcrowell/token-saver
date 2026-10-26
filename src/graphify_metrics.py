@@ -3,11 +3,50 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import shlex
 import sys
 from pathlib import Path
 
-from .tracker import SavingsTracker
+if __package__:
+    from .tracker import SavingsTracker
+else:  # run as a script by the Kilo plugin: python3 <root>/src/graphify_metrics.py
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    from src.tracker import SavingsTracker
+
+
+def parse_query_command(command: str) -> tuple[str, str | None] | None:
+    """Return ``(question, cd_dir)`` for a ``graphify query "<question>"`` command.
+
+    Accepts a path-prefixed ``graphify`` binary and a leading ``cd <dir> &&``
+    (``cd_dir`` is that directory, else None).  Returns None for any other
+    command, including other graphify subcommands.
+    """
+    try:
+        lexer = shlex.shlex(command, posix=True, punctuation_chars=True)
+        lexer.whitespace_split = True
+        tokens = list(lexer)
+    except ValueError:
+        return None
+
+    cd_dir = None
+    segment: list[str] = []
+    for token in [*tokens, "&&"]:
+        if token not in ("&&", ";"):
+            segment.append(token)
+            continue
+        if len(segment) == 2 and segment[0] == "cd":
+            cd_dir = segment[1]
+        elif (
+            len(segment) >= 3
+            and os.path.basename(segment[0]) == "graphify"
+            and segment[1] == "query"
+            and not segment[2].startswith("-")
+        ):
+            return segment[2], cd_dir
+        segment = []
+    return None
 
 
 def corpus_tokens_from_report(project: str | Path) -> int | None:

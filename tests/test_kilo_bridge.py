@@ -71,6 +71,15 @@ class TestKiloBridge:
         assert len(data["output"]) < len(output)
         assert data["stats"]["originalChars"] == len(output)
 
+    def test_read_routes_to_file_content_only(self, monkeypatch, tmp_path):
+        """A path containing a tool name (cmake) must not route to that processor."""
+        monkeypatch.setenv("HOME", str(tmp_path))
+        content = "\n".join(f"set(VAR_{i} value_{i})" for i in range(900))
+        result = _run_bridge(
+            {"tool": "read", "command": "cat /src/cmake/FindFoo.cmake", "output": content}
+        )
+        assert json.loads(result.stdout) == {"compressed": False}
+
     def test_unsupported_command_passes_through(self):
         result = _run_bridge({"command": "echo hello", "output": "hello\n" * 100})
 

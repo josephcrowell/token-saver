@@ -1,6 +1,6 @@
 ---
 name: token-saver-graphify
-description: Use Graphify before exploring or explaining a codebase, architecture, implementation flow, or file relationships. Prefer an existing graphify-out graph, query it for focused context, and update it after code changes so Kilo sends less repository content to the model.
+description: Use Graphify before exploring or explaining a codebase, architecture, implementation flow, or file relationships. Prefer an existing graphify-out graph, query it for focused context, and update it after code changes so less repository content is sent to the model.
 compatibility: Requires the graphify command for graph creation and updates. Existing graphify-out/graph.json files can be queried locally.
 ---
 
@@ -18,7 +18,11 @@ Before broad file searches or reading many source files:
    Capture the complete query output.
 3. Use the returned nodes, relationships, and `source_location` values to narrow
    subsequent reads to the smallest relevant set of files.
-4. Record the measured context reduction immediately after a successful query:
+4. The Kilo Code and Claude Code integrations record the measured context
+   reduction automatically for `graphify query "<question>"` shell calls
+   (including a leading `cd <project> &&`). Do not record it again by hand.
+   Only when neither hook is installed, record it manually after a successful
+   query:
 
    ```bash
    printf '%s' '<JSON>' | python3 ~/.token-saver/src/graphify_metrics.py
@@ -49,10 +53,12 @@ because the lightweight code update only performs structural extraction.
 
 ## Token behavior
 
-- Token-Saver compresses verbose Bash output after Kilo executes commands.
+- Token-Saver compresses verbose tool output (shell, file reads, searches) after
+  each tool finishes.
 - Graphify reduces how much repository content needs to be searched and read.
 - Graphify structural extraction is deterministic and local.
-- Neither integration should silently route work through Kilo's free model router.
+- Neither integration should silently route work through a different or free
+  model router.
 - Recorded Graphify savings are estimates: full-corpus token baseline minus the
   returned traversal size. Reports label them separately from directly measured
   Bash-output compression and also expose a combined saved-token total.

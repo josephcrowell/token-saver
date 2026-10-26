@@ -12,8 +12,15 @@ class TestKiloInstaller:
         self.config_dir = os.path.join(self.tmp_home, "kilo-config")
         self.core_dir = os.path.join(self.tmp_home, "core")
         self.bridge = os.path.join(self.core_dir, "kilo", "compress.py")
+        # Keep the installer's workspace .kilo/plugins search out of this repo,
+        # whose own .kilo/plugins/token-saver.js would otherwise be overwritten.
+        self.workspace = os.path.join(self.tmp_home, "workspace")
+        os.makedirs(self.workspace)
+        self._workspace_env = mock.patch.dict(os.environ, {"KILO_WORKSPACE": self.workspace})
+        self._workspace_env.start()
 
     def teardown_method(self):
+        self._workspace_env.stop()
         shutil.rmtree(self.tmp_home, ignore_errors=True)
 
     def test_install_writes_native_plugin_skill_and_command(self):

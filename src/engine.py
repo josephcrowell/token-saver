@@ -53,8 +53,15 @@ class CompressionEngine:
             "compressed_len": compressed_len,
         }
 
-    def compress(self, command: str, output: str, graph_ctx=None) -> tuple[str, str, bool]:
+    def compress(
+        self, command: str, output: str, graph_ctx=None, only: str | None = None
+    ) -> tuple[str, str, bool]:
         """Compress output for a given command.
+
+        ``only`` restricts routing to the named processor (when enabled) — used
+        for synthetic tool commands such as ``cat <path>`` for a file read, whose
+        path must not be mistaken for a command (``cat FindFoo.cmake`` is not a
+        cmake run).
 
         Returns (compressed_output, processor_name, was_compressed).
         """
@@ -68,7 +75,8 @@ class CompressionEngine:
         if len(output) < min_len:
             return output, "none", False
 
-        for processor in self.processors:
+        candidates = [self._by_name[only]] if only in self._by_name else self.processors
+        for processor in candidates:
             if processor.can_handle(command):
                 # Check if processor supports graph_ctx parameter
                 try:

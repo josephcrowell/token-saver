@@ -64,6 +64,25 @@ _SOURCE_CODE_EXTENSIONS = {
     ".sql",
     ".tf",
     ".hcl",
+    # C/C++ variants, Qt, and CMake (edited directly in SonicDE/KDE trees)
+    ".cc",
+    ".cxx",
+    ".hh",
+    ".hxx",
+    ".mm",
+    ".qml",
+    ".ui",
+    ".qrc",
+    ".pro",
+    ".pri",
+    ".cmake",
+}
+
+# Extensionless or generically named build files: NEVER compressed
+_SOURCE_CODE_FILENAMES = {
+    "CMakeLists.txt",
+    "Makefile",
+    "Dockerfile",
 }
 
 # Config files with exact values: NEVER compressed
@@ -181,7 +200,7 @@ class FileContentProcessor(Processor):
             return self._compress_env_file(output.splitlines())
 
         # ── NEVER COMPRESS: source code ──────────────────────────────
-        if ext in _SOURCE_CODE_EXTENSIONS:
+        if ext in _SOURCE_CODE_EXTENSIONS or filename in _SOURCE_CODE_FILENAMES:
             return output
 
         # ── NEVER COMPRESS: sensitive config ─────────────────────────

@@ -13,7 +13,12 @@ import urllib.error
 import urllib.request
 
 from src import __version__
-from src.version_check import _fetch_latest_version, _parse_version
+from src.version_check import (
+    GITHUB_MAIN_BRANCH,
+    GITHUB_REPO,
+    _fetch_latest_version,
+    _parse_version,
+)
 
 
 def _repo_dir():
@@ -212,10 +217,13 @@ def _update_via_tarball(repo_dir, version):
     """Update by downloading and extracting release tarball."""
     print("Downloading update...")
 
-    # Try both tag formats: v1.2.0 and 1.2.0 (mirrors _update_via_git behavior)
+    # Try both tag formats: v1.2.0 and 1.2.0 (mirrors _update_via_git behavior),
+    # then the main branch, which is where the version comes from while the
+    # repo has no tagged releases.
     urls = [
-        f"https://github.com/ppgranger/token-saver/archive/refs/tags/v{version}.tar.gz",
-        f"https://github.com/ppgranger/token-saver/archive/refs/tags/{version}.tar.gz",
+        f"https://github.com/{GITHUB_REPO}/archive/refs/tags/v{version}.tar.gz",
+        f"https://github.com/{GITHUB_REPO}/archive/refs/tags/{version}.tar.gz",
+        f"https://github.com/{GITHUB_REPO}/archive/refs/heads/{GITHUB_MAIN_BRANCH}.tar.gz",
     ]
 
     tarball_data = None

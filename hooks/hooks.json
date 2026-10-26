@@ -1,14 +1,14 @@
 {
-  "description": "Token-saver: compress verbose CLI output to save tokens",
+  "description": "Token-saver: compress verbose tool output to save tokens",
   "hooks": {
-    "PreToolUse": [
+    "PostToolUse": [
       {
-        "matcher": "Bash",
+        "matcher": "Bash|Read|Grep|Glob|Agent|Task|WebFetch",
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_pretool.py\"",
-            "timeout": 5000
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_posttool.py\"",
+            "timeout": 30
           }
         ]
       }
@@ -19,7 +19,7 @@
           {
             "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_session.py\"",
-            "timeout": 3000
+            "timeout": 5
           }
         ]
       }

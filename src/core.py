@@ -1,9 +1,9 @@
 """Shared compression core used by the Claude, Antigravity, and Kilo hooks.
 
-The platforms integrate differently — Claude rewrites the Bash command to run
-through ``wrap.py`` (PreToolUse), while Antigravity and Kilo compress
-already-captured tool output (post-tool hooks) — but the *decision* of what to
-compress and the *bookkeeping* afterwards are identical.
+All platforms compress already-captured tool output in post-tool hooks
+(Claude PostToolUse, Antigravity AfterTool, Kilo ``tool.execute.after``);
+``scripts/wrap.py`` remains for manual and dry-run use.  The *decision* of what
+to compress and the *bookkeeping* afterwards are identical.
 This module centralizes processing so all platform entry points stay in lock-step.
 """
 
@@ -65,7 +65,7 @@ def should_compress(command: str) -> bool:
 
 def compress(
     command: str, output: str, *, engine: CompressionEngine | None = None, graph_ctx=None,
-    cross_turn: bool = True,
+    cross_turn: bool = True, processor: str | None = None,
 ) -> CompressResult:
     """Compress ``output`` for ``command``; never raises (passes through on error).
 
@@ -76,6 +76,7 @@ def compress(
         graph_ctx: Optional GraphContext for graphify-aware compression.
             If None, auto-detects from project root.
         cross_turn: Whether to apply cross-turn verbatim dedup (default True)
+        processor: Optional processor name to route to exclusively
     """
     engine = engine or CompressionEngine()
 
@@ -88,8 +89,11 @@ def compress(
         except Exception:
             graph_ctx = None
 
+    routing = {"only": processor} if processor else {}
     try:
-        compressed, processor_name, was_compressed = engine.compress(command, output, graph_ctx=graph_ctx)
+        compressed, processor_name, was_compressed = engine.compress(
+            command, output, graph_ctx=graph_ctx, **routing
+        )
     except Exception:
         _log.exception("Compression failed for %r — passing through", command)
         compressed, processor_name, was_compressed = output, "passthrough", False
@@ -231,3 +235,43 @@ def record_result(result: CompressResult, command: str, platform: str) -> None:
         record_saving(
             command, result.processor, result.original_len, result.compressed_len, platform
         )
+
+
+# Non-shell tools whose output is always worth compressing once it clears the
+# engine's min_input_length threshold.  They carry a synthetic command string
+# (e.g. ``cat <path>`` for a file read) that only routes to a processor, so the
+# shell-oriented ``should_compress`` gate does not apply to them.
+NON_SHELL_TOOLS = frozenset({
+    "read", "grep", "glob", "task", "webfetch", "websearch",
+    "codebase_search", "lsp", "background_process",
+})
+
+# Tools whose synthetic command must route to one processor only.
+_TOOL_PROCESSORS = {"read": "file_content"}
+
+
+def compress_tool_output(
+    command: str,
+    output: str,
+    *,
+    tool: str = "",
+    platform: str,
+    session_id: str | None = None,
+) -> CompressResult | None:
+    """Compress already-captured tool output for post-tool hooks (Kilo, Claude).
+
+    Shell commands go through the ``should_compress`` gate; ``NON_SHELL_TOOLS``
+    skip it.  Returns the result only when output was actually compressed (and
+    records it), otherwise None so callers pass the original output through.
+    """
+    if not output:
+        return None
+    if tool not in NON_SHELL_TOOLS and not should_compress(command):
+        return None
+    if session_id:
+        os.environ["TOKEN_SAVER_SESSION"] = str(session_id)
+    result = compress(command, output, processor=_TOOL_PROCESSORS.get(tool))
+    if not result.was_compressed:
+        return None
+    record_result(result, command, platform)
+    return result

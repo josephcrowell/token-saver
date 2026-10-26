@@ -316,6 +316,7 @@ CORE_FILES = [
     ".claude-plugin/marketplace.json",
     "hooks/hooks.json",
     "scripts/__init__.py",
+    "scripts/hook_posttool.py",
     "scripts/hook_pretool.py",
     "scripts/wrap.py",
     "scripts/hook_session.py",

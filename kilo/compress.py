@@ -14,13 +14,6 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from src import core
 
-# Tools that always bypass should_compress — their output is always worth
-# compressing if it exceeds the engine's min_input_length threshold.
-_NON_BASH_TOOLS = frozenset({
-    "read", "grep", "glob", "task", "webfetch", "websearch",
-    "codebase_search", "lsp", "background_process",
-})
-
 
 def main():
     try:
@@ -31,26 +24,17 @@ def main():
         tool = data.get("tool", "")
         if not isinstance(command, str) or not isinstance(output, str):
             return
-        if not output:
-            json.dump({"compressed": False}, sys.stdout)
-            return
 
         # For bash commands, use should_compress gate (excludes sudo, editors,
         # complex pipes, etc.).  For non-bash tools, skip the gate — the
         # engine's min_input_length check filters out short outputs.
-        if tool not in _NON_BASH_TOOLS:
-            if not core.should_compress(command):
-                json.dump({"compressed": False}, sys.stdout)
-                return
-
-        if session_id:
-            os.environ["TOKEN_SAVER_SESSION"] = str(session_id)
-        result = core.compress(command, output)
-        if not result.was_compressed:
+        result = core.compress_tool_output(
+            command, output, tool=tool, platform="kilo_code", session_id=session_id
+        )
+        if result is None:
             json.dump({"compressed": False}, sys.stdout)
             return
 
-        core.record_result(result, command, "kilo_code")
         json.dump(
             {
                 "compressed": True,

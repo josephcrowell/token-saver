@@ -27,13 +27,15 @@ CLAUDE_FILES = [
     ".claude-plugin/marketplace.json",
     # Hooks (native plugin format — Claude Code reads these automatically)
     "hooks/hooks.json",
-    # Scripts
+    # Scripts (hook_pretool.py provides the shared should_compress gate)
     "scripts/__init__.py",
+    "scripts/hook_posttool.py",
     "scripts/hook_pretool.py",
     "scripts/wrap.py",
     "scripts/hook_session.py",
     # Skills and commands
     "skills/token-saver-config/SKILL.md",
+    "skills/token-saver-graphify/SKILL.md",
     "commands/token-saver-stats.md",
     # Plugin instructions
     "CLAUDE.md",
@@ -41,7 +43,6 @@ CLAUDE_FILES = [
 
 _MARKETPLACE_NAME = "token-saver-marketplace"
 _PLUGIN_KEY = f"token-saver@{_MARKETPLACE_NAME}"
-_GITHUB_REPO = "ppgranger/token-saver"
 
 
 def _settings_dir():
@@ -123,11 +124,11 @@ def _iso_now():
 def _register_plugin(marketplace_dir, cache_dir, version):
     """Register token-saver as a native Claude Code plugin.
 
-    Registers the GitHub repo as a known marketplace (pointing
-    ``installLocation`` at *marketplace_dir* so Claude Code can find
-    ``.claude-plugin/marketplace.json``), writes the plugin entry in
-    installed_plugins.json (v2 format, ``installPath`` → *cache_dir*),
-    and enables it in settings.json.
+    Registers *marketplace_dir* as a local ``directory`` marketplace (so
+    Claude Code reads ``.claude-plugin/marketplace.json`` from this install
+    and never refreshes it from the upstream GitHub repo, which would replace
+    this fork), writes the plugin entry in installed_plugins.json (v2 format,
+    ``installPath`` → *cache_dir*), and enables it in settings.json.
     """
     plugins_dir = os.path.join(_settings_dir(), "plugins")
     os.makedirs(plugins_dir, exist_ok=True)
@@ -145,9 +146,8 @@ def _register_plugin(marketplace_dir, cache_dir, version):
 
     known[_MARKETPLACE_NAME] = {
         "source": {
-            "source": "github",
-            "repo": _GITHUB_REPO,
-            "ref": "production",
+            "source": "directory",
+            "path": marketplace_dir,
         },
         "installLocation": marketplace_dir,
         "lastUpdated": now,
@@ -380,12 +380,13 @@ def install(use_symlink=False):
     """Install Token-Saver for Claude Code as a native plugin.
 
     This produces the same result as:
-      /plugin marketplace add ppgranger/token-saver
+      /plugin marketplace add <this checkout>
       /plugin install token-saver
 
     Files are installed to the plugin cache directory (with version in the
-    path), the GitHub repo is registered as a known marketplace, and the
-    plugin is added to installed_plugins.json (v2 format) and enabledPlugins.
+    path), the marketplace directory is registered as a local marketplace,
+    and the plugin is added to installed_plugins.json (v2 format) and
+    enabledPlugins.
     """
     # 1. Migrate from v1.x (clean old hooks, old directories)
     _migrate_from_v1()

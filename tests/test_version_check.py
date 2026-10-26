@@ -1,7 +1,13 @@
 """Tests for version check module: comparison, fail-open."""
 
+import io
+import json
 import os
 import sys
+import time
+import urllib.error
+
+import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -127,3 +133,58 @@ class TestVersionCache:
         result = check_for_update(fetch_fn=lambda: "99.0.0")
         assert result is not None
         assert "99.0.0" in result
+
+    def test_cache_from_another_repo_is_ignored(self, tmp_path, monkeypatch):
+        """A lookup cached against upstream must not drive this fork's banner."""
+        cache = tmp_path / "cache.json"
+        monkeypatch.setattr(version_check, "_cache_path", lambda: str(cache))
+        cache.write_text(json.dumps({"latest": "99.0.0", "checked_at": time.time()}))
+        assert _read_cache(ttl=3600) is None
+
+
+class _FakeResponse(io.BytesIO):
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_exc):
+        self.close()
+
+
+class TestFetchLatestVersion:
+    def test_targets_fork(self):
+        assert version_check.GITHUB_REPO == "josephcrowell/token-saver"
+        assert "josephcrowell/token-saver" in version_check._GITHUB_API_URL
+        assert "josephcrowell/token-saver" in version_check._MAIN_VERSION_URL
+        assert "ppgranger" not in version_check._GITHUB_API_URL
+
+    def test_uses_latest_release_tag(self, monkeypatch):
+        urls = []
+
+        def fake_urlopen(req, timeout):
+            urls.append(req.full_url)
+            return _FakeResponse(json.dumps({"tag_name": "v3.1.0"}).encode())
+
+        monkeypatch.setattr(version_check.urllib.request, "urlopen", fake_urlopen)
+        assert version_check._fetch_latest_version(timeout=1) == "3.1.0"
+        assert urls == [version_check._GITHUB_API_URL]
+
+    def test_falls_back_to_main_version_without_releases(self, monkeypatch):
+        urls = []
+
+        def fake_urlopen(req, timeout):
+            urls.append(req.full_url)
+            if req.full_url == version_check._GITHUB_API_URL:
+                raise urllib.error.HTTPError(req.full_url, 404, "Not Found", None, None)
+            return _FakeResponse(b'"""pkg"""\n\n__version__ = "2.7.0"\n')
+
+        monkeypatch.setattr(version_check.urllib.request, "urlopen", fake_urlopen)
+        assert version_check._fetch_latest_version(timeout=1) == "2.7.0"
+        assert urls == [version_check._GITHUB_API_URL, version_check._MAIN_VERSION_URL]
+
+    def test_other_http_errors_propagate(self, monkeypatch):
+        def fake_urlopen(req, timeout):
+            raise urllib.error.HTTPError(req.full_url, 403, "rate limited", None, None)
+
+        monkeypatch.setattr(version_check.urllib.request, "urlopen", fake_urlopen)
+        with pytest.raises(urllib.error.HTTPError):
+            version_check._fetch_latest_version(timeout=1)
